@@ -4,6 +4,15 @@
                     (map racket/base/map)
                     (filter racket/base/filter)))
 
+(provide map
+         filter
+         find
+         completing
+         reduced
+         reduced?
+         ensure-reduced
+         unreduced
+         transduce)
 
 ;; TODO: Implement a transducer which creates multiple values like cat
 ;; (mapcat?).
