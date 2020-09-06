@@ -1,6 +1,9 @@
 #lang racket
 
 (require racket/generic
+         (rename-in "transducer.rkt"
+                    (map xform/map)
+                    (filter xform/filter))
          (for-syntax syntax/parse)
          (rename-in racket/base
                       (map racket/map)
@@ -11,13 +14,7 @@
 (define-generics storage
   (storage:entity? storage eid)
   (storage:for-entity storage eid)
-  (storage:update storage eid data)
-  (storage:for-entities storage eids)
-  #:fallbacks
-  [#;(define [storage:for-entities self eids]
-     (for/list ([eid (in-list eids)])
-       (let ([data (storage:for-entity self eid)])
-         (when data data))))])
+  (storage:update storage eid data))
 
 ;; ^^^ FIXME: This doesn't work - I guess we can't use any methods - these
 ;; aren't interfaces. :\
@@ -44,17 +41,68 @@
 ;; TODO: At some point we will add tag-based component storage (for components
 ;; with no data/properties). For now we keep them all the same.
 
+(define-generics component
+  (component:type component))
+
+(define-syntax [define/component stx]
+  (syntax-parse stx
+    [(_ name:id (fields:expr ...))
+     #'(begin
+         (struct name (fields ...)
+           #:mutable
+           #:transparent
+           #:methods gen:component
+           [(define [component:type self] (quote name))])
+         (hash-set! (world)
+                    (quote name)
+                    (HashComponentStorage (quote name)
+                                          (make-hash))))]))
+
 (define world (make-parameter (make-hash)))
+(define next-eid (make-parameter 0))
 
 ;;; Function Interface ---------------------
 
+(define [storage:for-entities storage eids]
+  (for/list ([eid (in-list eids)]
+             #:when (storage:entity? storage eid))
+    (storage:for-entity storage eid)))
 
+(define [get-next-eid]
+  (next-eid (add1 (next-eid)))
+  (next-eid))
+
+(define/component Entity (eid))
+
+(define [define/entity . components]
+  (let* ([eid (get-next-eid)]
+         [ent (Entity eid)])
+    (storage:update (hash-ref (world) 'Entity) eid ent)
+    (map (λ (comp)
+           (storage:update (hash-ref (world) (component:type comp))
+                           eid
+                           comp))
+         components)
+    ent))
+
+(define [has? component-type]
+  (let ([stg (hash-ref (world) component-type)])
+    (xform/filter (λ (eid) (storage:entity? stg eid)))))
+
+(define [has?* stgs]
+  (apply compose (map has? stgs)))
+
+(define [into-resultset]
+         (xform/map (λ (eid) (cons eid '()))))
+
+(define [with-component component-type]
+  (let ([stg (hash-ref (world) component-type)])
+    (xform/map (λ (ent)
+                 (cons (car ent)
+                       (cons (storage:for-entity stg (car ent))
+                             (cdr ent)))))))
 
 ;;; Macro Interface ------------------------
-
-
-
-
 
 
 
