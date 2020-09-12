@@ -22,7 +22,8 @@
 ;;; allow rules to require additional parameters - In Inform, rules can take a
 ;;; parameter.
 
-;;; TODO: We could consider moving those parameters out into global parameters like we do for the rule database
+;;; TODO: We could consider moving those parameters out into global parameters
+;;; like we do for the rule database.
 
 (define-syntax [struct-update! stx]
   (syntax-parse stx
@@ -139,6 +140,57 @@
                #:name #,(car rule)
                #:for  rulebook
                #,(cadr rule))))]))
+
+
+;; This file contains the original rulebook / rules system. The majority of it
+;; is just plumbing to get rules and rulebooks set up as a data-structure. Now,
+;; if possible, we need to merge the work we did in "rules2.rkt" into this.
+
+;; When this is complete, we will be able to define rulebooks, rules for those
+;; rulebooks, and we will be able to figure out which rules actually apply given
+;; a specific action.
+
+;; The last step will be updating rule-traversal so that rules can make a
+;; decision.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
