@@ -6,24 +6,21 @@
                      racket/syntax))
 
 (provide struct-update!
-         exec-rule
-         exec-rulebook
+         abide-rulebook
          define/rule
-         define/rulebook
          (struct-out Rule))
 
 ;;; TODO: Insert rules in order of declaration by default (currently reversed).
+
 ;;; TODO: Implement a macro for executing rules/rulebooks or else another way to
 ;;; execute them where the user doesn't have to quote the forms (since we allow
 ;;; them to pretend they're identifiers when they create them.)
 
-;;; TODO: Params are currently hard coded into the rule macros - Ideally we want
-;;; to require some core set of parameters (dealing with world context etc), but
-;;; allow rules to require additional parameters - In Inform, rules can take a
-;;; parameter.
+;; TODO: Rulebooks execute applicable rules "in-order" until an outcome is
+;; determined.
 
-;;; TODO: We could consider moving those parameters out into global parameters
-;;; like we do for the rule database.
+;; TODO: Rulebooks can have their own "local" variables which rules can use to
+;; communicate with each other.
 
 (define-syntax [struct-update! stx]
   (syntax-parse stx
@@ -34,7 +31,27 @@
 
 ;;; Datatypes ----------------------------------
 
-(struct Rule (name rule) #:transparent)
+(struct Rule (name basis rule) #:transparent)
+
+(struct Determination (outcome value) #:transparent)
+(define [succeed [value #f]] (Determination 'success value))
+(define [fail [value #f]] (Determination 'failure value))
+(define [success? det] (eq? (Determination-outcome det) 'success))
+(define [failure? det] (eq? (Determination-outcome det) 'failure))
+
+;; NOTE: Technically there is a third determination: "decide on no outcome", but
+;; we consider that to be the default for any rule which doesn't return one of
+;; the other two determinations.
+
+;; NOTE: There are other determinations which can be made. Some rulebooks can
+;; define their own "named outcomes". For those rulebooks, we allow them to
+;; simply provide their own outcome symbols, and optional constructors and
+;; predicates.
+
+;; Notably, in Inform, these other outcomes are still considered to be either
+;; success or failure. We will have issues with our current design with this,
+;; but this is one of those "cross that bridge when you get there" types of
+;; problems.
 
 ;;; Data ---------------------------------------
 
@@ -61,136 +78,59 @@
           (hash-remove! (rule-database) rule-name)))
       (hash-remove! (rule-database) rule-name)))
 
-(define/contract [exec-rule rule #:params [params '()]]
-  (->* ((or/c symbol? Rule?)) (#:params (listof any/c)) any)
-  (let ([rule (if (Rule? rule)
-                  rule
-                  (car (hash-ref (rule-database) rule
-                                 (error "Unknown rule"
-                                        rule
-                                        "invoked. Execution failed."))))])
-    ; NOTE: We're assuming this function is called on specific named rules, not
-    ; rulebooks. As written, there is no way to invoke a specific rule from a
-    ; rulebook without invoking the entire rulebook. This is not a limitation of
-    ; the system, just how it's currently written.
-    (apply (Rule-rule rule) params)))
+(define [abide-rulebook rulebook #:param [param #f]]
 
-;; TODO: Rulebooks can return one of several sentinel values which indicate the
-;; outcome of the rulebook as well as its value.
-(define/contract [exec-rulebook rulebook #:params [params '()]]
-  (->* (symbol?) (#:params (listof any/c)) any)
-  (for/list ([rule (in-list (hash-ref (rule-database) rulebook '()))])
-    (exec-rule rule #:params params)))
+  ;; Get the rules associated with the rulebook in question
+  (let ([rules   (hash-ref (rule-database) rulebook '())]
+        [outcome (Determination 'no-outcome #f)])
+
+    (for/or ([rule (in-list rules)])
+      (let ([o (try-rule rule param)])
+        (if (Determination? o)
+            (set! outcome o)
+            (set! outcome (Determination 'no-outcome o)))
+        (or (success? outcome) (failure? outcome))))
+    outcome))
 
 ;;; Macro interface ----------------------------
 
-#;(define/rule #:name rule/update-turn-counter
-    (ecs/select-one
-     ([g Global])
-     (set-Global-turn-counter! g (add1 (Global-turn-counter g)))))
+;; FIXME: I don't think we need to say "name" here...
+#;(define/rule
+  #:name update-turn-counter
+  #:rule ([_] (ecs/select-one ([g Global])
+                              (struct-update! Global turn-counter g add1))))
 
-(define-syntax-parameter ecs
-  (λ (stx)
-    (raise-syntax-error (syntax-e stx) "ecs not bound.")))
+#;(define/rule
+  #:for   actions/carry-out
+  #:basis (Action 'take light-source? something?)
+  #:rule  ([Action _ obj cont]
+           (printf "You take the ~a from the ~a." obj cont)))
 
-(define-syntax-parameter cmd
-  (λ (stx)
-    (raise-syntax-error (syntax-e stx) "cmd not bound.")))
-
-; (define/contract [add-rule rule #:under [rulebook #f]]
 (define-syntax [define/rule stx]
   (syntax-parse stx
-    [(_
-      (~optional
-       (~seq #:name name:id)
-       #:defaults
-       ([name #`#,(format-id #f "~a" (gensym "rule"))]))
-      (~optional
-       (~seq #:for rulebook:id) #:defaults ([rulebook #'#f]))
-      body ...)
-     #`(add-rule (Rule (quote name)
-                       (λ (e c)
-                         (syntax-parameterize
-                             ([ecs (make-rename-transformer #'e)]
-                              [cmd (make-rename-transformer #'c)])
-                           body ...)))
-                 #:under (quote rulebook))]))
+    [(_ (~optional (~seq #:name name:id)
+                   #:defaults ([name #`#,(format-id #f "~a" (gensym "rule"))]))
+        (~optional (~seq #:for rulebook:id)
+                   #:defaults ([rulebook #'#f]))
+        (~optional (~seq #:basis basis)
+                   #:defaults ([basis #'x]))
+        #:rule (binding rule-stmts ...+))
 
-;; Define a rulebook called core/every-turn with two rules. The first rule is
-;; anonymous, while the second rule is called advance-time.
-#;(define/rulebook core/every-turn
-    ([(ecs/select-one ([g Global])
-                      (struct-update! Global turn-counter g add1))]
-     [advance-time
-      (ecs/select-one ([g Global])
-                      (struct-update! Global current-time g add1))]))
+     #'(begin
+         (define name
+           (Rule (quote name)
+                 #'basis
+                 (λ (x) (match-let ([binding x])
+                          rule-stmts ...))))
+         (add-rule name #:under (quote rulebook)))]))
 
-(define-syntax [define/rulebook stx]
-  (syntax-parse stx
-    [(_ rulebook:id
-        ([(~optional rule-name:id) rule-body:expr ...+] ...))
-     #:with rule-defs (for/list ([r  (in-list (attribute rule-name))]
-                            [rb (in-list (attribute rule-body))])
-                   (cons (if r r (format-id #f "~a" (gensym)))
-                         rb))
-     #`(begin
-         #,@(for/list ([rule (in-list (syntax->datum #'rule-defs))])
-           (printf "Rule: ~a~nBody: ~a~n" (car rule) (cadr rule))
-           #`(define/rule
-               #:name #,(car rule)
-               #:for  rulebook
-               #,(cadr rule))))]))
+(define [try-rule rule action]
+  (let ([pat (Rule-basis rule)]
+        [fn  (Rule-rule  rule)])
+    (eval #`(match #,action
+              [#,pat (#,fn #,action)]
+              [_ #f]))))
 
-
-;; This file contains the original rulebook / rules system. The majority of it
-;; is just plumbing to get rules and rulebooks set up as a data-structure. Now,
-;; if possible, we need to merge the work we did in "rules2.rkt" into this.
-
-;; When this is complete, we will be able to define rulebooks, rules for those
-;; rulebooks, and we will be able to figure out which rules actually apply given
-;; a specific action.
-
-;; The last step will be updating rule-traversal so that rules can make a
-;; decision.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+;; FIXME: This is really just for testing - real action implementation still
+;; hasn't been written...
+(struct Action (verb noun sec) #:transparent)
