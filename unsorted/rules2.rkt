@@ -55,7 +55,47 @@ destructuring.
 ;; ...rules... It doesn't change anything but we almost screwed this up big
 ;; time.
 
-(define-syntax [define/rule stx]
+;; Sketching out the new new define/rule macro
+
+
+;; vvv This rule doesn't have a basis, but it has a name.
+#;(define/rule
+  #:name &advance-time
+  #:for core/&every-turn
+  #:rule ([] (ecs/select-one ([g Global])
+                             (struct-update! Global current-time g add1))))
+
+;; Some definitions used in the next rule.
+#;(define [anything? x] #t)
+#;(define nil '())
+
+;; This rule has a basis, but no name. You can have both too.
+#;(define/rule
+  #:basis (Action 'open anything? nil)
+  #:rule  ([Action verb noun sec]
+           (printf "~nYou open the ~a" noun)))
+
+(define-syntax [define/rule* stx]
+  (syntax-parse stx
+    [(_ (~optional (~seq #:name name:id)
+                   #:defaults ([name #`#,(format-id #f "~a" (gensym "rule"))]))
+        (~optional (~seq #:for rulebook:id)
+                   #:defaults ([rulebook #'#f]))
+        (~optional (~seq #:basis basis)
+                   #:defaults ([basis #'x]))
+        #:rule (binding rule-stmts ...+))
+
+     #'(begin
+         (define name
+           (Rule (quote name)
+                 #'basis
+                 (λ (x) (match-let ([binding x])
+                          rule-stmts ...))))
+         (add-rule name #:under (quote rulebook)))]))
+
+
+
+(define-syntax [define/rule2 stx]
   (syntax-parse stx
     [(_  name:id
          #:for  match-binding

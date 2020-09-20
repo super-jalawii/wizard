@@ -1,0 +1,14 @@
+digraph G {
+	node0 [label="frank"];
+	node1 [label="chris"];
+	node2 [label="bob"];
+	node3 [label="sarah"];
+	node4 [label="steve"];
+	subgraph U {
+		edge [dir=none];
+		node0 -> node2;
+		node1 -> node3;
+		node2 -> node4;
+		node3 -> node4;
+}
+}

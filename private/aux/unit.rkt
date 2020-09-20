@@ -4,6 +4,22 @@
          racket/struct-info
          graph)
 
+(provide add-conversion-factor
+         convert-to
+         uom+ uom-
+         uom* uom/
+         (struct-out UOM)
+
+         ;; FIXME: These things should really be in another file.
+         (struct-out Distance)
+         (struct-out Meters)
+         (struct-out Kilometers)
+         (struct-out Feet)
+         ->Feet
+         (struct-out Inches))
+
+;; TODO: Add macros to even out the rough edges.
+
 (define-values (prop:conversions conversions? conversions-ref) (make-struct-type-property 'conversions))
 (define-values (prop:units       units?       units-ref)       (make-struct-type-property 'units))
 
@@ -37,7 +53,6 @@
 (define [->Feet x]
   (convert-to x struct:Feet))
 
-
 #;(define/uom Feet
   #:measure-of Distance
   #:units "ft"
@@ -48,11 +63,7 @@
   #:transparent
   #:property prop:units "in")
 
-;; How do we ask for the units of a particular type?
-
 #;(define/conversion meters -> kilometers : 1000)
-
-
 
 (define [add-conversion-factor from-uom to-uom factor]
   (let* ([g (conversions-ref from-uom)])
@@ -65,7 +76,7 @@
 (add-conversion-factor struct:Inches struct:Meters     39.37008)
 (add-conversion-factor struct:Inches struct:Feet       12)
 
-;; This might work better as a macro but it's hard to tell.
+;; FIXME: This might work better as a macro but it's hard to tell.
 (define [convert-to val uom]
   (let-values ([(from-uom _) (struct-info val)])
     ;; FIXME: This can't be the right way to do this. Surely there's a real way

@@ -1,0 +1,7 @@
+digraph G {
+	subgraph U {
+		edge [dir=none];
+	}
+	subgraph D {
+	}
+}

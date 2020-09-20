@@ -8,6 +8,12 @@
 (provide struct-update!
          abide-rulebook
          define/rule
+         succeed
+         fail
+         success?
+         failure?
+         decision-made?
+         (struct-out Determination)
          (struct-out Rule))
 
 ;;; TODO: Insert rules in order of declaration by default (currently reversed).
@@ -16,11 +22,14 @@
 ;;; execute them where the user doesn't have to quote the forms (since we allow
 ;;; them to pretend they're identifiers when they create them.)
 
-;; TODO: Rulebooks execute applicable rules "in-order" until an outcome is
-;; determined.
+;;; TODO: Rulebooks can have their own "local" variables which rules can use to
+;;; communicate with each other.
 
-;; TODO: Rulebooks can have their own "local" variables which rules can use to
-;; communicate with each other.
+;;; TODO: Rulebook execution follows the transducer pattern (at least for
+;;; "abide").
+
+;;; TODO: If we move the logic into the rule macro, we can "precalculate" the
+;;; match statement for each rule, which will avoid the use of eval.
 
 (define-syntax [struct-update! stx]
   (syntax-parse stx
@@ -38,6 +47,7 @@
 (define [fail [value #f]] (Determination 'failure value))
 (define [success? det] (eq? (Determination-outcome det) 'success))
 (define [failure? det] (eq? (Determination-outcome det) 'failure))
+(define [decision-made? det] (not (eq? (Determination-outcome det) 'no-outcome)))
 
 ;; NOTE: Technically there is a third determination: "decide on no outcome", but
 ;; we consider that to be the default for any rule which doesn't return one of
@@ -89,7 +99,7 @@
         (if (Determination? o)
             (set! outcome o)
             (set! outcome (Determination 'no-outcome o)))
-        (or (success? outcome) (failure? outcome))))
+        (decision-made? outcome)))
     outcome))
 
 ;;; Macro interface ----------------------------
@@ -97,7 +107,7 @@
 ;; FIXME: I don't think we need to say "name" here...
 #;(define/rule
   #:name update-turn-counter
-  #:rule ([_] (ecs/select-one ([g Global])
+  #:rule (_ (ecs/select-one ([g Global])
                               (struct-update! Global turn-counter g add1))))
 
 #;(define/rule
