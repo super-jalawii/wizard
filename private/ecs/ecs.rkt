@@ -17,7 +17,8 @@
          has?
          has?*
          into-resultset
-         with-component)
+         with-component
+         let/ecs)
 
 (define-generics storage
   (storage:entity? storage eid)
@@ -185,35 +186,29 @@
 (define [simple-component-query
          comps
          #:skip-first (skip-first? #f)]
-
-  (printf "~a" comps)
   (let ([xforms (list (into-resultset)
                       (apply compose
                              (map (λ (c) (with-component c))
                                   comps)))])
     (apply compose (if (and skip-first? (null? (cdr comps)))
                        xforms
-                       (cons (apply has?* (if skip-first? (cdr comps) comps))
+                       (cons (has?* (if skip-first? (cdr comps) comps))
                              xforms)))))
 
 (define-syntax [let/ecs stx]
   (syntax-parse stx
-    [(_ ([bind:expr comp:id] ...)
-
-        body ...)
+    [(_ ([bind:expr comp:id] ...) body ...)
 
      #:with comps #''(comp ...)
-
-     #:with bindings #`#,(for/list ([c (in-list (list #'(comp ...)))]
-                                    [b (in-list (list #'(bind ...)))]
-                                    [i (in-naturals)])
-                           #`(#,@b (list-ref ents #,i)))
-
      #:with init  #'(storage:entities (hash-ref (world) (car comps)))
+     #:with bindings #`#,(for/list ([c (in-list (syntax-e #'(comp ...)))]
+                                    [b (in-list (reverse
+                                                 (syntax-e #'(bind ...))))]
+                                    [i (in-naturals)])
+                           #`(#,b (list-ref ents #,(+ 1 i))))
 
      #`(let ([xform (simple-component-query comps #:skip-first #t)])
          (for/list ([ents (in-list (ecs-query xform #:init init))])
-           (printf "~a" bindings)
            (match-let (#,@#'bindings)
              body ...)))]))
 
