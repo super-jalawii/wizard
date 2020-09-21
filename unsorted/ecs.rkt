@@ -25,7 +25,8 @@
 (define-generics storage
   (storage:entity? storage eid)
   (storage:for-entity storage eid)
-  (storage:update storage eid data))
+  (storage:update storage eid data)
+  (storage:entities storage))
 
 ;; ^^^ FIXME: This doesn't work - I guess we can't use any methods - these
 ;; aren't interfaces. :\
@@ -39,7 +40,9 @@
    (define [storage:for-entity self eid]
      (hash-ref (HashComponentStorage-data self) eid #f))
    (define [storage:update self eid comp]
-     (hash-set! (HashComponentStorage-data self) eid comp))])
+     (hash-set! (HashComponentStorage-data self) eid comp))
+   (define [storage:entities self]
+     (hash-keys (HashComponentStorage-data self)))])
 
 ;; FlaggedComponentStorage is just a wrapper around another storage, with the
 ;; primary difference being that on insertion, updates, and deletion, an event

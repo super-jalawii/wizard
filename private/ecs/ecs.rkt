@@ -22,7 +22,8 @@
 (define-generics storage
   (storage:entity? storage eid)
   (storage:for-entity storage eid)
-  (storage:update storage eid data))
+  (storage:update storage eid data)
+  (storage:entities storage))
 
 (struct ComponentStorage (type))
 
@@ -33,7 +34,9 @@
    (define [storage:for-entity self eid]
      (hash-ref (HashComponentStorage-data self) eid #f))
    (define [storage:update self eid comp]
-     (hash-set! (HashComponentStorage-data self) eid comp))])
+     (hash-set! (HashComponentStorage-data self) eid comp))
+   (define [storage:entities self]
+     (hash-keys (HashComponentStorage-data self)))])
 
 ;; FlaggedComponentStorage is just a wrapper around another storage, with the
 ;; primary difference being that on insertion, updates, and deletion, an event
@@ -88,6 +91,8 @@
          components)
     ent))
 
+;; Transducer functions ---------------------------------------------
+
 (define [has? component-type]
   (let ([stg (hash-ref (world) component-type)])
     (xform/filter (λ (eid) (storage:entity? stg eid)))))
@@ -104,4 +109,121 @@
                  (cons (car ent)
                        (cons (storage:for-entity stg (car ent))
                              (cdr ent)))))))
+
+
+;; Macro Interface --------------------------------------------------
+
+;; General purpose ECS "query" macro. Here's what we want it to look like:
+
+#;(let/ecs ([pos Position]
+          [_   Player]
+          [(Display ch fg bg) Display])
+
+         ...do stuff here...)
+
+;; And an alternate form with a custom transducer:
+
+#;(let/ecs xform ([pos Position]
+                [_   Player]
+                [(Display ch fg bg) Display])
+
+         ...do stuff here...)
+
+;; Both variants of these macros provide a list of component "bindings" which
+;; can be used in the body of the let/ecs form. An important detail is in the
+;; third component in the example. This demonstrates that we should be able to
+;; use a destructuring bind to actually disassemble a component struct for more
+;; convenience.
+
+;; NOTE: This version of the macro is intentionally leaving out anything to do
+;; with relations since it's unclear how to represent them as identifiers.
+
+;; Maybe the name of the relation itself would be bound, and produce something
+;; like: (('from . '(list of entities)) ('to . '(list of entities))) The idea
+;; being that we would destructure this in the bind. Anyway - saving for later.
+
+;; The first example macro above should expand to:
+
+#;(let ([xform ???])
+
+  (for/list ([ent (in-list (ecs-query xform))])
+    (match-let ([pos (first ent)]
+                [_   (second ent)] ;; NOTE: We could leave this out
+                [(Display ch fg bg) Display])
+
+      ...body...)))
+
+;; And what is xform? We need to build a transducer that looks like this:
+
+#;(compose (has?* 'Position 'Player 'Display)
+         (into-resultset)
+         (with-component 'Position)
+         (with-component 'Player)
+         (with-component 'Display))
+
+;; This should actually be a somewhat straightforward macro, but we will see
+;; about that.
+
+#;(let/ecs ([pos Position]
+          [_   Player]
+          [(Display ch fg bg) Display])
+
+         ...do stuff here...)
+
+;; ecs-query is essentially the "transduce" function but specialized to deal
+;; with the ECS - essentially just giving better default behaviour.
+
+;; NOTE: #:init is the set of initial entities - since transducer pipelines are
+;; opaque, we can't "look into it" to see what the first step is - nor can we
+;; guarantee that the first step even involves storages.
+(define [ecs-query
+         xform
+         #:init (init (storage:entities
+                       (hash-ref (world) 'Entity)))]
+  (transduce xform (completing cons) '() init))
+
+(define [simple-component-query
+         comps
+         #:skip-first (skip-first? #f)]
+
+  (printf "~a" comps)
+  (let ([xforms (list (into-resultset)
+                      (apply compose
+                             (map (λ (c) (with-component c))
+                                  comps)))])
+    (apply compose (if (and skip-first? (null? (cdr comps)))
+                       xforms
+                       (cons (apply has?* (if skip-first? (cdr comps) comps))
+                             xforms)))))
+
+(define-syntax [let/ecs stx]
+  (syntax-parse stx
+    [(_ ([bind:expr comp:id] ...)
+
+        body ...)
+
+     #:with comps #''(comp ...)
+
+     #:with bindings #`#,(for/list ([c (in-list (list #'(comp ...)))]
+                                    [b (in-list (list #'(bind ...)))]
+                                    [i (in-naturals)])
+                           #`(#,@b (list-ref ents #,i)))
+
+     #:with init  #'(storage:entities (hash-ref (world) (car comps)))
+
+     #`(let ([xform (simple-component-query comps #:skip-first #t)])
+         (for/list ([ents (in-list (ecs-query xform #:init init))])
+           (printf "~a" bindings)
+           (match-let (#,@#'bindings)
+             body ...)))]))
+
+
+
+
+
+
+
+
+
+
 
