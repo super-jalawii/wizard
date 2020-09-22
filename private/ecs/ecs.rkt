@@ -14,17 +14,39 @@
 (provide define/component
          define/entity
          (struct-out Entity)
+         *world*
+         *next-eid*
          has?
          has?*
+         ecs-query
+         Component-entity?
+         Component-for-entity
+         Component-all
+         Component-entities
          into-resultset
          with-component
          let/ecs)
+
+(define [Component-entity? comp eid]
+  (storage:entity? (get-storage comp)
+                   eid))
+
+(define [Component-for-entity comp eid]
+  (storage:for-entity (get-storage comp)
+                      eid))
+
+(define [Component-all comp]
+  (storage:components (get-storage comp)))
+
+(define [Component-entities comp]
+  (storage:entities (get-storage comp)))
 
 (define-generics storage
   (storage:entity? storage eid)
   (storage:for-entity storage eid)
   (storage:update storage eid data)
-  (storage:entities storage))
+  (storage:entities storage)
+  (storage:components storage))
 
 (struct ComponentStorage (type))
 
@@ -37,7 +59,9 @@
    (define [storage:update self eid comp]
      (hash-set! (HashComponentStorage-data self) eid comp))
    (define [storage:entities self]
-     (hash-keys (HashComponentStorage-data self)))])
+     (hash-keys (HashComponentStorage-data self)))
+   (define [storage:components self]
+     (hash-values (HashComponentStorage-data self)))])
 
 ;; FlaggedComponentStorage is just a wrapper around another storage, with the
 ;; primary difference being that on insertion, updates, and deletion, an event
@@ -62,13 +86,13 @@
            #:transparent
            #:methods gen:component
            [(define [component:type self] (quote name))])
-         (hash-set! (world)
+         (hash-set! (*world*)
                     (quote name)
                     (HashComponentStorage (quote name)
                                           (make-hash))))]))
 
-(define world (make-parameter (make-hash)))
-(define next-eid (make-parameter 0))
+(define *world* (make-parameter (make-hash)))
+(define *next-eid* (make-parameter 0))
 
 (define [storage:for-entities storage eids]
   (for/list ([eid (in-list eids)]
@@ -76,26 +100,35 @@
     (storage:for-entity storage eid)))
 
 (define [get-next-eid]
-  (next-eid (add1 (next-eid)))
-  (next-eid))
+  (*next-eid* (add1 (*next-eid*)))
+  (*next-eid*))
 
 (define/component Entity (eid))
+
+;; FIXME: This ... is really broken. By doing this we can't have any other type
+;; of component storage. A better solution might be to maintain the component
+;; storage definitions separate from their particular instances in *world*.
+;; Alternatively, the components themselves could store the appropriate storage
+;; constructor as a struct-type-property. We could then ask the struct to
+;; construct it's own self. Since we only have component names here, we would
+;; still need to maintain a mapping...
+(define [get-storage comp]
+  (unless (hash-has-key? (*world*) comp)
+    (hash-set! (*world*) comp (HashComponentStorage comp (make-hash))))
+  (hash-ref (*world*) comp))
 
 (define [define/entity . components]
   (let* ([eid (get-next-eid)]
          [ent (Entity eid)])
-    (storage:update (hash-ref (world) 'Entity) eid ent)
-    (map (λ (comp)
-           (storage:update (hash-ref (world) (component:type comp))
-                           eid
-                           comp))
+    (storage:update (get-storage 'Entity) eid ent)
+    (map (λ (comp) (storage:update (get-storage (component:type comp)) eid comp))
          components)
     ent))
 
 ;; Transducer functions ---------------------------------------------
 
 (define [has? component-type]
-  (let ([stg (hash-ref (world) component-type)])
+  (let ([stg (get-storage component-type)])
     (xform/filter (λ (eid) (storage:entity? stg eid)))))
 
 (define [has?* stgs]
@@ -105,7 +138,7 @@
          (xform/map (λ (eid) (cons eid '()))))
 
 (define [with-component component-type]
-  (let ([stg (hash-ref (world) component-type)])
+  (let ([stg (get-storage component-type)])
     (xform/map (λ (ent)
                  (cons (car ent)
                        (cons (storage:for-entity stg (car ent))
@@ -140,8 +173,7 @@
 ;; guarantee that the first step even involves storages.
 (define [ecs-query
          xform
-         #:init (init (storage:entities
-                       (hash-ref (world) 'Entity)))]
+         #:init (init (storage:entities (get-storage 'Entity)))]
   (transduce xform (completing cons) '() init))
 
 (define [simple-component-query
@@ -161,7 +193,7 @@
     [(_ ([bind:expr comp:id] ...) body ...)
 
      #:with comps #''(comp ...)
-     #:with init  #'(storage:entities (hash-ref (world) (car comps)))
+     #:with init  #'(storage:entities (get-storage (car comps)))
      #:with bindings #`#,(for/list ([c (in-list (syntax-e #'(comp ...)))]
                                     [b (in-list (reverse
                                                  (syntax-e #'(bind ...))))]

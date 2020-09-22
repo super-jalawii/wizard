@@ -83,5 +83,5 @@
 (define [gsm:handle-input gsm] (game-state:handle-input (current gsm)))
 (define [gsm:draw         gsm] (game-state:draw         (current gsm)))
 
-(define [make-GameStateManager]
-  (GameStateManager (Stack (list (IdleGameState)))))
+(define [make-GameStateManager [initial-states (list (IdleGameState))]]
+  (GameStateManager (Stack initial-states)))
