@@ -9,6 +9,7 @@
          send
          recv
          recv-all
+         clear
          clear-all)
 
 ;; TODO: How can we delete a message to prevent it from propogating to other
@@ -42,10 +43,13 @@
     [(_ type:id)
      #'(hash-ref (events) (quote type))]))
 
-(define-syntax [clear-all stx]
+(define-syntax [clear stx]
   (syntax-parse stx
     [(_ type:id)
      #'(hash-set! (events) (quote type) '())]))
+
+(define [clear-all]
+  (hash-clear! (events)))
 
 ;; FIXME: Figure out how to represent the "else" branch
 (define-syntax [recv stx]

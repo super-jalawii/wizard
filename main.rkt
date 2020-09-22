@@ -2,8 +2,10 @@
 
 (require "aux.rkt"
          "ds.rkt"
-         "ecs.rkt")
+         "ecs.rkt"
+         "engine.rkt")
 
 (provide (all-from-out "aux.rkt"
                        "ds.rkt"
-                       "ecs.rkt"))
+                       "ecs.rkt"
+                       "engine.rkt"))

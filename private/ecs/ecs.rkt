@@ -114,15 +114,7 @@
 
 ;; Macro Interface --------------------------------------------------
 
-;; General purpose ECS "query" macro. Here's what we want it to look like:
-
-#;(let/ecs ([pos Position]
-          [_   Player]
-          [(Display ch fg bg) Display])
-
-         ...do stuff here...)
-
-;; And an alternate form with a custom transducer:
+;; TODO: This version hasn't yet been implemented.
 
 #;(let/ecs xform ([pos Position]
                 [_   Player]
@@ -142,37 +134,6 @@
 ;; Maybe the name of the relation itself would be bound, and produce something
 ;; like: (('from . '(list of entities)) ('to . '(list of entities))) The idea
 ;; being that we would destructure this in the bind. Anyway - saving for later.
-
-;; The first example macro above should expand to:
-
-#;(let ([xform ???])
-
-  (for/list ([ent (in-list (ecs-query xform))])
-    (match-let ([pos (first ent)]
-                [_   (second ent)] ;; NOTE: We could leave this out
-                [(Display ch fg bg) Display])
-
-      ...body...)))
-
-;; And what is xform? We need to build a transducer that looks like this:
-
-#;(compose (has?* 'Position 'Player 'Display)
-         (into-resultset)
-         (with-component 'Position)
-         (with-component 'Player)
-         (with-component 'Display))
-
-;; This should actually be a somewhat straightforward macro, but we will see
-;; about that.
-
-#;(let/ecs ([pos Position]
-          [_   Player]
-          [(Display ch fg bg) Display])
-
-         ...do stuff here...)
-
-;; ecs-query is essentially the "transduce" function but specialized to deal
-;; with the ECS - essentially just giving better default behaviour.
 
 ;; NOTE: #:init is the set of initial entities - since transducer pipelines are
 ;; opaque, we can't "look into it" to see what the first step is - nor can we
