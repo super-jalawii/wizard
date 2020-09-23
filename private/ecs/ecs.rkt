@@ -19,6 +19,7 @@
          has?
          has?*
          ecs-query
+         (rename-out [simple-component-query ecs-simple-query])
          Component-entity?
          Component-for-entity
          Component-all

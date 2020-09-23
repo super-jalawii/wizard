@@ -1,6 +1,8 @@
 #lang racket/base
 
-(require "private/engine/state.rkt")
+(require "private/engine/main.rkt"
+         "private/engine/state.rkt")
 
 
-(provide (all-from-out "private/engine/state.rkt"))
+(provide (all-from-out "private/engine/main.rkt"
+                       "private/engine/state.rkt"))
