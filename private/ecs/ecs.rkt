@@ -80,13 +80,17 @@
 
 (define-syntax [define/component stx]
   (syntax-parse stx
-    [(_ name:id (fields:expr ...))
+    [(_ name:id (fields:expr ...)
+        ;; We can "forward" additional struct attributes like this. Implemented
+        ;; mostly for being able to implement generic interfaces.
+        other-stuff ...)
      #'(begin
          (struct name (fields ...)
            #:mutable
            #:transparent
            #:methods gen:component
-           [(define [component:type self] (quote name))])
+           [(define [component:type self] (quote name))]
+           other-stuff ...)
          (hash-set! (*world*)
                     (quote name)
                     (HashComponentStorage (quote name)
