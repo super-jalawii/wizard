@@ -8,19 +8,21 @@
 
 (provide gen:spatial
          gen:tree
+         tree:data
          (struct-out Point)
          (struct-out AABB)
          contains?
          intersects?
          QuadTree
          (rename-out [insert! QuadTree-insert!]
+                     [remove! QuadTree-remove!]
                      [tree-map tree:map]
                      [tree-each tree:each]
                      [tree-fold tree:fold]
+                     [Node-bounds quadtree:bounds]
                      [tree-transduce tree:transduce]
                      [quadtree-query-at-point QuadTree-at-point]
                      [quadtree-query-region QuadTree-in-region]))
-
 
 (define-generics spatial
   (spatial:get-origin spatial))
@@ -79,14 +81,14 @@
             (if (member elt (Node-data node))
                 (and (set-Node-data! node (remove elt (Node-data node)))
                      (when (null? (Node-data node))
-                       ;; When there's nothing left in this node - we should
-                       ;; delete this node somehow. We can only really do this
-                       ;; (in the current implementation) by asking the parent,
-                       ;; and even then - only when no child nodes contain data.
+                       ;; TODO: When there's nothing left in this node - we
+                       ;; should delete this node somehow. We can only really do
+                       ;; this (in the current implementation) by asking the
+                       ;; parent, and even then - only when no child nodes
+                       ;; contain data.
                        (set-Node-children! node #f))
                      #t)
                 #f)
-            ;; Children, try them instead...
             (ormap (λ (x) x) (vector->list (vector-map (λ (n) (remove! n elt)) (Node-children node)))))
         #f)))
 #;(define (update node elt fn))
@@ -105,8 +107,8 @@
               [(Point px py) point])
     (and (>= px x)
          (>= py y)
-         (<= px (+ x w))
-         (<= py (+ y h)))))
+         (< px (+ x w))
+         (< py (+ y h)))))
 
 (define (intersects? region bounds)
   (match-let ([(AABB x1 y1 w1 h1) region]

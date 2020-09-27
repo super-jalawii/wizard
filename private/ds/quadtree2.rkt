@@ -1,54 +1,63 @@
 #lang racket
 
+(require racket/generic)
 
+(define-generics spatial
+  (spatial:get-origin spatial))
 
+(struct Point (x y)
+  #:transparent
+  #:methods gen:spatial
+  [(define (spatial:get-origin self) self)])
 
+(struct Position (eid x y)
+  #:transparent
+  #:methods gen:spatial
+  [(define (spatial:get-origin self)
+     (Point (Position-x self) (Position-y self)))])
 
-
-(struct Point (x y) #:transparent)
 (struct AABB (x y w h) #:transparent)
+(struct Node (bounds data children) #:mutable #:transparent)
 
-(struct Node (bounds capacity points children) #:mutable #:transparent)
+(define (insert node elt)
+  (match-let ([(and (Point x y)
+                    (var point)) (spatial:get-origin elt)])
+    (if (contains? point (Node-bounds node))
+        (if (and #;((Node-capacity node) . > . (length (Node-points node)))
+                 ;; Only split when the two points given are different
+                 (or (null? (Node-data node))
+                     (and (let* ([point2 (spatial:get-origin (car (Node-data node)))]
+                                 [x2 (Point-x point2)]
+                                 [y2 (Point-y point2)])
+                            (eq? x x2) (eq? y y2))))
+                 (not (Node-children node)))
+            (set-Node-data! node (cons elt (Node-data node)))
+            ;; Otherwise, we need to subdivide and insert all the points from this
+            ;; node into child nodes (in addition to inserting the actual point
+            ;; we're trying to insert.)
 
-(define (insert node point)
-  (if (contains? point (Node-bounds node))
-      (if (and #;((Node-capacity node) . > . (length (Node-points node)))
-               ;; Only split when the two points given are different
-               (or (null? (Node-points node))
-                   (and (eq? (Point-x (car (Node-points node))) (Point-x point))
-                        (eq? (Point-y (car (Node-points node))) (Point-y point))))
-               (not (Node-children node)))
-        (set-Node-points! node (cons point (Node-points node)))
-        ;; Otherwise, we need to subdivide and insert all the points from this
-        ;; node into child nodes (in addition to inserting the actual point
-        ;; we're trying to insert.)
-
-        (begin
-          ;; Subdivide the node if it isn't already subdivided.
-          (when (not (Node-children node))
-            (set-Node-children! node (subdivide node))
-            ;; And now that we've subdivided, try to pawn off all your points
-            ;; onto your children.
-            (for ([point (in-list (Node-points node))])
+            (begin
+              ;; Subdivide the node if it isn't already subdivided.
+              (when (not (Node-children node))
+                (set-Node-children! node (subdivide node))
+                ;; And now that we've subdivided, try to pawn off all your points
+                ;; onto your children.
+                (for ([elt (in-list (Node-data node))])
+                  (for/or ([quad (in-vector (Node-children node))])
+                    (insert quad elt)))
+                (set-Node-data! node '()))
+              ;; Try to file away the points in this node into child nodes.
               (for/or ([quad (in-vector (Node-children node))])
-                (insert quad point)))
-            (set-Node-points! node '()))
-          ;; Try to file away the points in this node into child nodes.
-          (for/or ([quad (in-vector (Node-children node))])
-            (insert quad point))))
-    #f))
+                (insert quad elt))))
+        #f)))
 
 (define (subdivide node)
   (match-let ([(AABB x y w h) (Node-bounds node)])
     (let* ([w (/ w 2)] [h (/ h 2)]
-           [ne (make-node (AABB x y w h)
-                          #:capacity (Node-capacity node))]
-           [nw (make-node (AABB (+ x w) y w h)
-                          #:capacity (Node-capacity node))]
-           [se (make-node (AABB (+ x w) (+ y h) w h)
-                          #:capacity (Node-capacity node))]
-           [sw (make-node (AABB x (+ y h) w h)
-                          #:capacity (Node-capacity node))])
+           [ne (make-node (AABB x y w h))]
+           [nw (make-node (AABB (+ x w) y w h))]
+           [se (make-node (AABB (+ x w) (+ y h) w h))]
+           [sw (make-node (AABB x (+ y h) w h))])
       (vector ne nw se sw))))
 
 (define (contains? point bounds)
@@ -67,14 +76,8 @@
         (<= y2 y1 (+ y2 h2))
         (<= y1 y2 (+ y1 h1)))))
 
-(define (make-node bounds [points '()] #:capacity [capacity 1])
-  (Node bounds capacity points #f))
-
-#;(define (tree-map tree fn)
-  (fn tree)
-  (when (Node-children tree)
-    (for/list ([quad (in-vector (Node-children tree))])
-      (tree-map quad fn))))
+(define (make-node bounds [data '()])
+  (Node bounds data #f))
 
 (define (tree-map tree fn)
   (tree-transduce
@@ -111,32 +114,38 @@
        (unreduced (xf (unreduced ret)))))))
 
 (define (query-at-point tree point)
-  (flatten (tree-transduce (compose (filter (λ (node) (contains? point (Node-bounds node))))
-                           (filter (λ (node) (and (not (null? (Node-points node)))
-                                                  (and (eq? (Point-x (car (Node-points node)))
-                                                            (Point-x point))
-                                                       (eq? (Point-y (car (Node-points node)))
-                                                            (Point-y point))))))
-                           (map Node-points))
-                           (completing cons) '() tree)))
+  (flatten (tree-transduce
+            (compose (filter (λ (node) (contains? point (Node-bounds node))))
+                     (filter (λ (node)
+                               (and (not (null? (Node-data node)))
+                                    (let* ([p2 (spatial:get-origin (car (Node-data node)))]
+                                           [x2 (Point-x p2)] [y2 (Point-y p2)])
+                                      (and (eq? (Point-x point) x2)
+                                           (eq? (Point-y point) y2))))))
+                     (map Node-data))
+            (completing cons) '() tree)))
 
 (define (query-region tree region)
-  (flatten (tree-transduce (compose (filter (λ (node) (intersects? region (Node-bounds node))))
-                                    (filter (λ (node) (and (not (null? (Node-points node)))
-                                                           (contains? (car (Node-points node)) region))))
-                                    (map Node-points))
-                           (completing cons) '() tree)))
+  (flatten (tree-transduce
+            (compose (filter (λ (node) (intersects? region (Node-bounds node))))
+                     (filter (λ (node)
+                               (and (not (null? (Node-data node)))
+                                    (contains? (spatial:get-origin (car (Node-data node)))
+                                               region))))
+                     (map Node-data))
+            (completing cons) '() tree)))
 
 
 ;; Testing --------------------------
 
-(define qt (make-node (AABB 0 0 800 800) #:capacity 1))
+(define qt (make-node (AABB 0 0 800 800)))
 
 (for ([i (in-range 10)])
   (let ([x (random 400 800)]
-        [y (random 400 800)])
-    (printf "~n~a" (Point x y))
-    (insert qt (Point x y))))
+        [y (random 400 800)]
+        [eid (random 0 1000)])
+    (printf "~n~a" (Position eid x y))
+    (insert qt (Position eid x y))))
 
 (require raylib)
 
@@ -156,19 +165,12 @@
                                         (random 0 255)
                                         (random 0 255)
                                         255)])
-                   #;(draw-text (format "~a,~a" x y) (exact-truncate x) (exact-truncate y) 5 col)
-                   (draw-rect-lines
-                    (exact-truncate x)
-                    (exact-truncate y)
-                    (exact-truncate w)
-                    (exact-truncate h) col)
-                   (for ([pt (in-list (Node-points node))])
-                     #;(draw-text (format "~a,~a" (Point-x pt) (Point-y pt))
-                                (Point-x pt)
-                                (Point-y pt)
-                                5
-                                col)
-                     (draw-circle (Point-x pt) (Point-y pt) 2. col))))))
+                   (draw-rect-lines x y w h col)
+                   (for ([elt (in-list (Node-data node))])
+                     (let* ([pt (spatial:get-origin elt)]
+                            [x (Point-x pt)]
+                            [y (Point-y pt)])
+                       (draw-circle x y 2. col)))))))
 
   (draw-end))
 

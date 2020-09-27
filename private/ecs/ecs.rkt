@@ -2,6 +2,7 @@
 
 (require racket/generic
          racket/stxparam
+         racket/syntax
          (rename-in "../aux/transducer.rkt"
                     (map xform/map)
                     (filter xform/filter))
@@ -13,13 +14,19 @@
 
 (provide define/component
          define/entity
+         gen:storage
+         prop:ctor
+         (struct-out HashComponentStorage)
          (struct-out Entity)
+         (struct-out Component)
+         (struct-out IndexedComponent)
          *world*
          *next-eid*
          has?
          has?*
          ecs-query
-         (rename-out [simple-component-query ecs-simple-query])
+         (rename-out [simple-component-query ecs-simple-query]
+                     [get-storage Component-storage])
          Component-entity?
          Component-for-entity
          Component-all
@@ -49,7 +56,22 @@
   (storage:entities storage)
   (storage:components storage))
 
-(struct ComponentStorage (type))
+(define-values
+  (prop:ctor ctor? ctor-ref)
+  (make-struct-type-property 'ctor))
+(define-values
+  (prop:type type? component:type)
+  (make-struct-type-property 'type))
+
+(define (get-storage comp)
+  (unless (hash-has-key? (*world*) (component:type comp))
+    (hash-set! (*world*) (component:type comp) ((ctor-ref comp))))
+  (hash-ref (*world*) (component:type comp)))
+
+(struct Component ())
+(struct IndexedComponent Component ([eid #:auto #:mutable]) #:auto-value 0)
+
+(struct ComponentStorage ())
 
 (struct HashComponentStorage ComponentStorage ([data #:mutable])
   #:methods gen:storage
@@ -75,26 +97,27 @@
 ;; TODO: At some point we will add tag-based component storage (for components
 ;; with no data/properties). For now we keep them all the same.
 
-(define-generics component
-  (component:type component))
+(define [make-HashComponentStorage]
+  (HashComponentStorage (make-hash)))
 
 (define-syntax [define/component stx]
   (syntax-parse stx
-    [(_ name:id (fields:expr ...)
+    #:disable-colon-notation
+    [(_ name (fields ...)
+        (~optional (~seq #:indexed indexed)
+                   #:defaults ([indexed #'#f]))
+        (~optional (~seq #:property (~literal prop:ctor) ctor-fn)
+                   #:defaults ([ctor-fn #'make-HashComponentStorage]))
         ;; We can "forward" additional struct attributes like this. Implemented
         ;; mostly for being able to implement generic interfaces.
         other-stuff ...)
-     #'(begin
-         (struct name (fields ...)
+     #`(begin
+         (struct name #,(if (syntax-e #'indexed) #'IndexedComponent #'Component) (fields ...)
            #:mutable
            #:transparent
-           #:methods gen:component
-           [(define [component:type self] (quote name))]
-           other-stuff ...)
-         (hash-set! (*world*)
-                    (quote name)
-                    (HashComponentStorage (quote name)
-                                          (make-hash))))]))
+           #:property prop:type (quote name)
+           #:property prop:ctor ctor-fn
+           other-stuff ...))]))
 
 (define *world* (make-parameter (make-hash)))
 (define *next-eid* (make-parameter 0))
@@ -110,23 +133,14 @@
 
 (define/component Entity (eid))
 
-;; FIXME: This ... is really broken. By doing this we can't have any other type
-;; of component storage. A better solution might be to maintain the component
-;; storage definitions separate from their particular instances in *world*.
-;; Alternatively, the components themselves could store the appropriate storage
-;; constructor as a struct-type-property. We could then ask the struct to
-;; construct it's own self. Since we only have component names here, we would
-;; still need to maintain a mapping...
-(define [get-storage comp]
-  (unless (hash-has-key? (*world*) comp)
-    (hash-set! (*world*) comp (HashComponentStorage comp (make-hash))))
-  (hash-ref (*world*) comp))
-
 (define [define/entity . components]
   (let* ([eid (get-next-eid)]
          [ent (Entity eid)])
-    (storage:update (get-storage 'Entity) eid ent)
-    (map (λ (comp) (storage:update (get-storage (component:type comp)) eid comp))
+    (storage:update (get-storage struct:Entity) eid ent)
+    (map (λ (comp)
+           (when (IndexedComponent? comp)
+             (set-IndexedComponent-eid! comp eid))
+           (storage:update (get-storage comp) eid comp))
          components)
     ent))
 
@@ -178,7 +192,7 @@
 ;; guarantee that the first step even involves storages.
 (define [ecs-query
          xform
-         #:init (init (storage:entities (get-storage 'Entity)))]
+         #:init (init (storage:entities (get-storage struct:Entity)))]
   (transduce xform (completing cons) '() init))
 
 (define [simple-component-query
@@ -193,24 +207,36 @@
                        (cons (has?* (if skip-first? (cdr comps) comps))
                              xforms)))))
 
+(define/component Position (x y) #:indexed #t)
+(define/component Player ())
+
 (define-syntax [let/ecs stx]
   (syntax-parse stx
-    [(_ ([bind:expr comp:id] ...) body ...)
+    [(n ([bind:expr comp:id] ...) body ...)
 
-     #:with comps #''(comp ...)
-     #:with init  #'(storage:entities (get-storage (car comps)))
-     #:with bindings #`#,(for/list ([c (in-list (syntax-e #'(comp ...)))]
+     #:with comps #'(comp ...)
+     #:with structs (map (λ (id) (format-id #'n "struct:~a" id)) (syntax-e #'comps))
+     #:with init  #`(storage:entities (get-storage #;struct:Entity #,(car (syntax-e #'structs))))
+     #:with bindings #`#,(for/list ([c (in-list (syntax->list #'comps))]
                                     [b (in-list (reverse
                                                  (syntax-e #'(bind ...))))]
                                     [i (in-naturals)])
                            #`(#,b (list-ref ents #,(+ 1 i))))
 
-     #`(let ([xform (simple-component-query comps #:skip-first #t)])
+     #`(let ([xform (simple-component-query #,(cons #'list #'structs) #:skip-first #t)])
          (for/list ([ents (in-list (ecs-query xform #:init init))])
            (match-let (#,@#'bindings)
              body ...)))]))
 
+(define [test]
 
+  (Position 10 10)
+  (define/entity (Position 10 10)
+    (Player
+     ))
+  (let/ecs ([(Position eid x y) Position]
+            [_ Player])
+           (printf "pos: ~a ~a" x y)))
 
 
 

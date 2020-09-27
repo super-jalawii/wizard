@@ -29,14 +29,14 @@
   (syntax-parse stx
     [(_ comp:id field:id)
      #`(λ (eid)
-         (let ([c (Component-for-entity (quote comp) eid)])
+         (let ([c (Component-for-entity #,(format-id #'comp "struct:~a" #'comp) eid)])
            #,(with-syntax ([getter (format-id #'comp "~a-~a" #'comp #'field)])
                #`(#,(datum->syntax #'comp #'getter) c))))]))
 
 (define [draw-tooltips]
   (let ([margin-x 5])
     (let/ecs ([(Tooltip text ox oy) Tooltip ]
-              [(Position      x  y) Position])
+              [(Position eid  x  y) Position])
              ;; Calculate the size of the text and build the appropriate
              ;; background. Optionally, we could make sure the background is a
              ;; multiple of the tile width (taking into account scaling factor).

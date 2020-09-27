@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require "private/ds/octree.rkt")
+(require "private/ds/quadtree.rkt")
 
-(provide (all-from-out "private/ds/octree.rkt"))
+(provide (all-from-out "private/ds/quadtree.rkt"))
 
