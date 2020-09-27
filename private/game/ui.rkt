@@ -22,8 +22,7 @@
 
 (struct Range    (current maximum))
 (struct Gradient (from-color to-color))
-(struct Target   (eid value-fn))  ;; Field must point to a value containing a
-                                  ;; range (at least for StatusBar).
+(struct Target   (eid value-fn))
 
 (define-syntax [Target-value stx]
   (syntax-parse stx
@@ -40,15 +39,21 @@
              ;; Calculate the size of the text and build the appropriate
              ;; background. Optionally, we could make sure the background is a
              ;; multiple of the tile width (taking into account scaling factor).
-             (let ([origin-x (* 20 (+ x ox))]
-                   [origin-y (* 20 (+ y oy))]
-                   [text-w   (measure-text text 20)])
+             (let ([origin-x (+ (exact-truncate (* -1 (*cam-offset-x*)))
+                                (* 10 (config:get 'gfx-scale-x) x) ox)]
+                   [origin-y (+ (exact-truncate (* -1 (*cam-offset-y*)))
+                                (* 10 (config:get 'gfx-scale-y) y) oy)]
+                   [text-w   (measure-text text (* 10 (config:get 'gfx-scale-x)))])
                (draw-Rect (make-Rect (+ 0. origin-x)
                                      (+ 0. origin-y)
                                      (+ 0. (* 2 margin-x) text-w)
-                                     20.)
+                                     (* 10. (config:get 'gfx-scale-y)))
                           DARKGRAY)
-               (draw-text text (+ margin-x origin-x) origin-y 20 WIZARDWHITE)))))
+               (draw-text text
+                          (+ margin-x origin-x)
+                          origin-y
+                          (* 10 (config:get 'gfx-scale-x))
+                          WIZARDWHITE)))))
 
 (define [draw-statusbars]
   (let/ecs ([(StatusBar text target gradient) StatusBar]
@@ -60,32 +65,12 @@
              (draw-box x y (* (/ (Range-current value)
                                  (Range-maximum value)) w) h
                        CLEAR #:px 5 #:py 2 #:fill-color (Gradient-from-color gradient))
-
-             ;; Draw the border
-             #;(draw-Rect (make-Rect (+ 0. x)
-                                   (+ 0. y)
-                                   (+ 6. w)
-                                   (+ 6. h))
-                        DARKGRAY)
-             ;; Draw the inner bar
-             #;(draw-Rect (make-Rect (+ 3. x)
-                                   (+ 3. y)
-                                   (+ 0. w)
-                                   (+ 0. h))
-                        (Gradient-to-color gradient))
-             #;(draw-Rect (make-Rect (+ 3. x)
-                                   (+ 3. y)
-                                   (+ 0. (* (/ (Range-current value)
-                                               (Range-maximum value)) w))
-                                   (+ 0. h))
-                        ;; FIXME: We said gradient but we lied...
-                        (Gradient-from-color gradient))
              ;; Draw the text label
              (draw-text (format text
                                 (Range-current value)
                                 (Range-maximum value))
                         ;; Draw in the middle I guess...
-                        (+ x 30)
+                        (+ x 30) ;; Where does this number even come from??
                         (+ y  h)
                         20
                         WIZARDWHITE))))

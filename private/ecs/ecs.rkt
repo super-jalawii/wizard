@@ -16,6 +16,7 @@
          define/entity
          gen:storage
          prop:ctor
+         prop:type
          (struct-out HashComponentStorage)
          (struct-out Entity)
          (struct-out Component)
@@ -146,12 +147,12 @@
 
 ;; Transducer functions ---------------------------------------------
 
-(define [has? component-type]
-  (let ([stg (get-storage component-type)])
+(define [has? type]
+  (let ([stg (get-storage type)])
     (xform/filter (λ (eid) (storage:entity? stg eid)))))
 
-(define [has?* stgs]
-  (apply compose (map has? stgs)))
+(define [has?* types]
+  (apply compose (map has? types)))
 
 (define [into-resultset]
          (xform/map (λ (eid) (cons eid '()))))
@@ -207,16 +208,13 @@
                        (cons (has?* (if skip-first? (cdr comps) comps))
                              xforms)))))
 
-(define/component Position (x y) #:indexed #t)
-(define/component Player ())
-
 (define-syntax [let/ecs stx]
   (syntax-parse stx
     [(n ([bind:expr comp:id] ...) body ...)
 
      #:with comps #'(comp ...)
      #:with structs (map (λ (id) (format-id #'n "struct:~a" id)) (syntax-e #'comps))
-     #:with init  #`(storage:entities (get-storage #;struct:Entity #,(car (syntax-e #'structs))))
+     #:with init  #`(storage:entities (get-storage #,(car (syntax-e #'structs))))
      #:with bindings #`#,(for/list ([c (in-list (syntax->list #'comps))]
                                     [b (in-list (reverse
                                                  (syntax-e #'(bind ...))))]
@@ -227,22 +225,4 @@
          (for/list ([ents (in-list (ecs-query xform #:init init))])
            (match-let (#,@#'bindings)
              body ...)))]))
-
-(define [test]
-
-  (Position 10 10)
-  (define/entity (Position 10 10)
-    (Player
-     ))
-  (let/ecs ([(Position eid x y) Position]
-            [_ Player])
-           (printf "pos: ~a ~a" x y)))
-
-
-
-
-
-
-
-
 

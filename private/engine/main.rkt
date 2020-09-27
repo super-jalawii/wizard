@@ -46,7 +46,7 @@
              #:ticks-per-second [ticks-per-second 60]
              #:max-frameskip [max-frameskip 10]]
   (parameterize ([*gsm* (GameStateManager (list init-gs))]
-                 [*world* (make-hash)]
+                 #;[*world* (make-hash)]
                  [*next-eid* 0])
     (Window-init win)
     (gameloop ticks-per-second max-frameskip)))
