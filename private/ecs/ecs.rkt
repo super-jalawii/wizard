@@ -32,9 +32,23 @@
          Component-for-entity
          Component-all
          Component-entities
+         Component-add
+         Component-remove
+         Component-update
          into-resultset
          with-component
          let/ecs)
+
+(define (Component-update comp eid)
+  (storage:update (get-storage comp) eid comp))
+
+(define (Component-add comp eid)
+  (storage:update (get-storage comp)
+                  eid
+                  comp))
+
+(define (Component-remove comp eid)
+  (storage:remove (get-storage comp) eid))
 
 (define [Component-entity? comp eid]
   (storage:entity? (get-storage comp)
@@ -54,6 +68,7 @@
   (storage:entity? storage eid)
   (storage:for-entity storage eid)
   (storage:update storage eid data)
+  (storage:remove storage eid)
   (storage:entities storage)
   (storage:components storage))
 
@@ -82,6 +97,8 @@
      (hash-ref (HashComponentStorage-data self) eid #f))
    (define [storage:update self eid comp]
      (hash-set! (HashComponentStorage-data self) eid comp))
+   (define [storage:remove self eid]
+     (hash-remove! (HashComponentStorage-data self) eid))
    (define [storage:entities self]
      (hash-keys (HashComponentStorage-data self)))
    (define [storage:components self]
