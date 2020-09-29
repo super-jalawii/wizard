@@ -87,8 +87,8 @@
                                        (exact-truncate (* 20 (AABB-h bounds)))
                                        WIZARDWHITE)
                       (for ([pt (in-list (tree:data node))])
-                        (draw-circle (* 20 (Position-x pt))
-                                     (* 20 (Position-y pt))
+                        (draw-circle (exact-truncate (* 20 (Position-x pt)))
+                                     (exact-truncate (* 20 (Position-y pt)))
                                      2.
                                      RED)))))))
 
