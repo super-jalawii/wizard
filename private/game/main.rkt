@@ -120,6 +120,114 @@
 (define *cam-offset-x* (make-parameter 0))
 (define *cam-offset-y* (make-parameter 0))
 
+
+#;(define/event Camera ([TransferCamera camera-eid target-eid speed]))
+
+;; Animation System - First thing is moving an entity from one point to another
+;; - we're gonna use this for the camera first.
+
+;; First, we need to define a set of easing functions. The first will be the
+;; hardest. Then we can associate an easing function with the component we're
+;; moving, (maybe the animation is itself a component).
+
+(define (lerp v0 v1 t)
+  (+ (* (- 1 t) v0) (* t v1)))
+
+(define (ease:in-out-sine x)
+  (* (- (cos (* pi x)) 1) -0.5))
+
+;; FIXME: key-frames should possibly be a list of animations which are
+;; simultanously ongoing. Otherwise, we can have only a single animation at a
+;; time for a given entity. But today we start small.
+(define/component Animation (key-frames))
+
+;; FIXME: Effect should possibly be a list of effects to be applied
+(struct KeyFrame (effect length [current #:auto #:mutable]) #:auto-value 0)
+
+;; Effect should be a function that, given the current progress though the
+;; key-frame, produces the appropriate changes.
+
+(define (animation-system dt)
+  ;; For each animation, get the current keyframe, and do the thing. If this was
+  ;; the last bit of the current keyframe, then delete it (so the next one is
+  ;; current). If there are no more keyframes left, delete the component.
+  (let/ecs ([(and (var anim)
+                  (Animation frames)) Animation]
+            [(Entity eid)             Entity   ])
+           ;; TODO: Delete the animation component when it's finished.
+           (if (null? frames)
+               (Component-remove struct:Animation eid)
+               (let ([frame (car frames)])
+                 (set-KeyFrame-current! frame (min (+ (KeyFrame-current frame) dt)
+                                                   (KeyFrame-length frame)))
+                 ((KeyFrame-effect frame) eid (/ (KeyFrame-current frame)
+                                                 (KeyFrame-length frame)))
+                 ;; If the frame is complete, drop it.
+                 (when (<= (KeyFrame-length frame) (KeyFrame-current frame))
+                   (set-Animation-key-frames! anim (cdr frames)))))))
+
+(define (lerp:between-points from to [easing (λ (x) x)])
+  (let ([x-lerp (compose (λ (t) (lerp (Point-x from) (Point-x to) t)) easing)]
+        [y-lerp (compose (λ (t) (lerp (Point-y from) (Point-y to) t)) easing)])
+    (λ (t) (Point (x-lerp t) (y-lerp t)))))
+
+(define (effect:cycle handle indices)
+  (let ([current indices])
+    (λ (eid t)
+      #;(printf "~n~a ~a ~a" t (* (- (length indices) (length current)) (/ 1 (length indices))) (car current))
+      (Component-update (Sprite-by-idx handle (car current)) eid)
+      (when (> t (* (- (length indices) (length current)) (/ 1 (length indices))))
+        (if (null? (cdr current))
+            (set! current indices)
+            (set! current (cdr current)))))))
+
+(define (effect:pan from to [easing (λ (x) x)])
+  (let ([effect (lerp:between-points from to easing)])
+    (λ (eid t)
+      (let ([pos (Component-for-entity struct:Position eid)]
+            [pt (effect t)])
+        (set-Position! pos (Point-x pt) (Point-y pt))))))
+
+#;(define (effect:phase to [easing (λ (x) x)])
+  (λ (eid t)
+    (let ([]))))
+
+(provide animation-system
+         lerp
+         lerp:between-points
+         ease:in-out-sine
+         effect:pan
+         effect:cycle
+         (struct-out Animation)
+         (struct-out KeyFrame))
+;; ^^^ The above defines a *function* which will move from the Point "from" to
+;; the Point "to", given a value of time.
+
+;; FIXME: !!! So this is interesting ... We do not seem to observe any change in
+;; the position component here. But when we move the let/ecs form to *inside*
+;; the loop, we do. What does that mean?
+#;(let ([current-pt (Point 0 0)]
+      [dest-pt (Point 20 15)])
+  (define/entity
+    (Position 0 0)
+    (Animation (list (KeyFrame (effect:pan current-pt dest-pt) 5))))
+  (let/ecs ([_                Animation]
+            [(Position _ x y) Position ])
+           (for ([i (in-range 50)])
+             (animation-system 0.1)
+             (printf "~nCurrent Position: ~a ~a" x y))))
+
+#;(let ([current-pt (Point 0 0)]
+      [dest-pt (Point 20 15)])
+  (define/entity
+    (Position 0 0)
+    (Animation (list (KeyFrame (effect:pan current-pt dest-pt) 5000))))
+  (for ([i (in-range 5000)])
+    (let/ecs ([_                Animation]
+              [(Position _ x y) Position ])
+             (animation-system 1)  ;; Time is specified in milliseconds.
+             (printf "~nCurrent Position: ~a ~a" x y))))
+
 ;; FIXME: This query isn't working - the struct:Blah stuff is probably to blame idk...
 (define xform/visible-sprites
   (compose (has? struct:Sprite)
