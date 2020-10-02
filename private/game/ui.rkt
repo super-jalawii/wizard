@@ -6,69 +6,69 @@
          (for-syntax racket/syntax
                      syntax/parse))
 
-(provide (struct-out Tooltip)
-         (struct-out WindowPos)
-         (struct-out StatusBar)
-         (struct-out Range)
-         (struct-out Gradient)
-         (struct-out Target)
-         Target-value
-         draw-tooltips
-         draw-statusbars)
+(provide (struct-out tooltip)
+         (struct-out window-pos)
+         (struct-out status-bar)
+         (struct-out range)
+         (struct-out gradient)
+         (struct-out target)
+         target-value
+         draw/tooltips
+         draw/statusbars)
 
-(define/component WindowPos (x y))
-(define/component Tooltip   (text offset-x offset-y))
-(define/component StatusBar (text target gradient))
+(define/component window-pos (x y))
+(define/component tooltip (text offset-x offset-y))
+(define/component status-bar (text target gradient))
 
-(struct Range    (current maximum))
-(struct Gradient (from-color to-color))
-(struct Target   (eid value-fn))
+(struct range (current maximum) #:constructor-name $range)
+(struct gradient (from-color to-color) #:constructor-name $gradient)
+(struct target (eid value-fn) #:constructor-name $target)
 
-(define-syntax [Target-value stx]
+(define-syntax [target-value stx]
   (syntax-parse stx
     [(_ comp:id field:id)
      #`(λ (eid)
-         (let ([c (Component-for-entity #,(format-id #'comp "struct:~a" #'comp) eid)])
+         (let ([c (component:for-entity #,(format-id #'comp "struct:~a" #'comp) eid)])
            #,(with-syntax ([getter (format-id #'comp "~a-~a" #'comp #'field)])
                #`(#,(datum->syntax #'comp #'getter) c))))]))
 
-(define [draw-tooltips]
+(define [draw/tooltips]
   (let ([margin-x 5])
-    (let/ecs ([(Tooltip text ox oy) Tooltip ]
-              [(Position eid  x  y) Position])
+    (let/ecs ([(tooltip text ox oy) tooltip ]
+              [(position eid  x  y) position])
              ;; Calculate the size of the text and build the appropriate
              ;; background. Optionally, we could make sure the background is a
              ;; multiple of the tile width (taking into account scaling factor).
              (let ([origin-x (+ (exact-truncate (* -1 (*cam-offset-x*)))
-                                (* 10 (config:get 'gfx-scale-x) x) ox)]
+                                (* 10 (config-ref 'gfx-scale-x) x) ox)]
                    [origin-y (+ (exact-truncate (* -1 (*cam-offset-y*)))
-                                (* 10 (config:get 'gfx-scale-y) y) oy)]
-                   [text-w   (measure-text text (* 10 (config:get 'gfx-scale-x)))])
+                                (* 10 (config-ref 'gfx-scale-y) y) oy)]
+                   [text-w   (measure-text text (* 10 (config-ref 'gfx-scale-x)))])
                (draw-Rect (make-Rect (+ 0. origin-x)
                                      (+ 0. origin-y)
                                      (+ 0. (* 2 margin-x) text-w)
-                                     (* 10. (config:get 'gfx-scale-y)))
+                                     (* 10. (config-ref 'gfx-scale-y)))
                           DARKGRAY)
                (draw-text text
                           (+ margin-x origin-x)
                           origin-y
-                          (* 10 (config:get 'gfx-scale-x))
+                          (* 10 (config-ref 'gfx-scale-x))
                           WIZARDWHITE)))))
 
-(define [draw-statusbars]
-  (let/ecs ([(StatusBar text target gradient) StatusBar]
-            [(WindowPos x y)                  WindowPos])
+(define [draw/statusbars]
+  (let/ecs ([(status-bar text target gradient) status-bar]
+            [(window-pos x y)                  window-pos])
            (let ([w    300]
                  [h     20]
-                 [value ((Target-value-fn target) (Target-eid target))])
-             (draw-box x y w h DARKGRAY #:px 5 #:py 2 #:fill-color (Gradient-to-color gradient))
-             (draw-box x y (* (/ (Range-current value)
-                                 (Range-maximum value)) w) h
-                       CLEAR #:px 5 #:py 2 #:fill-color (Gradient-from-color gradient))
+                 [value ((target-value-fn target) (target-eid target))])
+             (draw/box x y w h DARKGRAY #:px 5 #:py 2 #:fill-color (gradient-to-color gradient))
+             (draw/box x y (* (/ (range-current value)
+                                 (range-maximum value)) w) h
+                       CLEAR #:px 5 #:py 2 #:fill-color (gradient-from-color gradient))
              ;; Draw the text label
              (draw-text (format text
-                                (Range-current value)
-                                (Range-maximum value))
+                                (range-current value)
+                                (range-maximum value))
                         ;; Draw in the middle I guess...
                         (+ x 30) ;; Where does this number even come from??
                         (+ y  h)
@@ -76,7 +76,7 @@
                         WIZARDWHITE))))
 
 ;; TODO: Implement grid-snap
-(define [draw-box x y w h color
+(define [draw/box x y w h color
                   #:mx [mx 0] #:my [my 0]
                   #:px [px 0] #:py [py 0]
                   #:grid-snap  [grid-snap #t]

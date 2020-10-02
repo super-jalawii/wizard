@@ -2,41 +2,39 @@
 
 (require raylib
          "state.rkt"
-         "../config.rkt"
+         wizard/config
          wizard/ecs)
 
-(provide (rename-out [make-Window Window])
+(provide (rename-out [make-window window])
          *delta-time*
          run)
 
-(struct Window (width height title fullscreen))
+(struct window (width height title fullscreen)
+  #:constructor-name window$)
 
-(define (make-Window width height title #:fullscreen [fullscreen #f])
-  (Window width height title fullscreen))
+(define (make-window width height title #:fullscreen [fullscreen #f])
+  (window$ width height title fullscreen))
 
-(define (Window-init win)
-  (if (Window-fullscreen win)
+(define (window-init win)
+  (if (window-fullscreen win)
       (begin
-        (printf "Fullscreen enabled")
-        (set-config-flags! 'FLAG_FULLSCREEN_MODE)
+        (trace-log log::info "Fullscreen enabled")
+        (set-config-flags! window::fullscreen)
         (init-window (screen-width)
                      (screen-height)
-                     (Window-title win)))
-      (begin
-        (printf "Fullscreen disabled")
-        (set-config-flags! 'FLAG_NONE)
-        (init-window (Window-width  win)
-                     (Window-height win)
-                     (Window-title  win)))))
+                     (window-title win)))
+      (init-window (window-width  win)
+                   (window-height win)
+                   (window-title  win))))
 
-(define Window-close close-window)
+(define window-close close-window)
 
-(define *gsm* (make-parameter (GameStateManager)))
+(define *gsm* (make-parameter (gamestate-manager)))
 (define *delta-time* (make-parameter 0))
 
 (define (gameloop)
-  (let* ([ticks-per-second (config:get 'ticks-per-second)]
-         [max-frameskip    (config:get 'max-frameskip)   ]
+  (let* ([ticks-per-second (config-ref 'ticks-per-second)]
+         [max-frameskip    (config-ref 'max-frameskip)   ]
          [ticks-per-milli  (ticks-per-second . / . 1000) ]
          [skip-ticks       ticks-per-milli               ]
          [last-frame       (elapsed-time)                ])
@@ -62,9 +60,9 @@
 ;; FIXME: Run is essentially implementing its own gamestate (where the window is
 ;; initialized, and closed). Can we make this work like a gamestate too?
 (define (run window initial-gamestate)
-  (parameterize ([*gsm* (GameStateManager (list initial-gamestate))]
+  (parameterize ([*gsm* (gamestate-manager (list initial-gamestate))]
                  #;[*world* (make-hash)]
                  [*next-eid* 0])
-    (Window-init window)
+    (window-init window)
     (gameloop)
-    (Window-close)))
+    (window-close)))

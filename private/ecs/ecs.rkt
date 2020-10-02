@@ -17,52 +17,53 @@
          gen:storage
          prop:ctor
          prop:type
-         (struct-out HashComponentStorage)
-         (struct-out Entity)
-         (struct-out Component)
-         (struct-out IndexedComponent)
+         (struct-out hash-component-storage)
+         (struct-out entity)
+         (struct-out component)
+         (struct-out indexed-component)
          *world*
          *next-eid*
          has?
          has?*
          ecs-query
-         (rename-out [simple-component-query ecs-simple-query]
-                     [get-storage Component-storage])
-         Component-entity?
-         Component-for-entity
-         Component-all
-         Component-entities
-         Component-add
-         Component-remove
-         Component-update
+         (rename-out [simple-component-query ecs-query/simple]
+                     [define/component @define])
+         component:storage
+         component:entity?
+         component:for-entity
+         component:all
+         component:entities
+         component:add
+         component:remove
+         component:update
          into-resultset
          with-component
          let/ecs)
 
-(define (Component-update comp eid)
-  (storage:update (get-storage comp) eid comp))
+(define (component:update comp eid)
+  (storage:update (component:storage comp) eid comp))
 
-(define (Component-add comp eid)
-  (storage:update (get-storage comp)
+(define (component:add comp eid)
+  (storage:update (component:storage comp)
                   eid
                   comp))
 
-(define (Component-remove comp eid)
-  (storage:remove (get-storage comp) eid))
+(define (component:remove comp eid)
+  (storage:remove (component:storage comp) eid))
 
-(define [Component-entity? comp eid]
-  (storage:entity? (get-storage comp)
+(define [component:entity? comp eid]
+  (storage:entity? (component:storage comp)
                    eid))
 
-(define [Component-for-entity comp eid]
-  (storage:for-entity (get-storage comp)
+(define [component:for-entity comp eid]
+  (storage:for-entity (component:storage comp)
                       eid))
 
-(define [Component-all comp]
-  (storage:components (get-storage comp)))
+(define [component:all comp]
+  (storage:components (component:storage comp)))
 
-(define [Component-entities comp]
-  (storage:entities (get-storage comp)))
+(define [component:entities comp]
+  (storage:entities (component:storage comp)))
 
 (define-generics storage
   (storage:entity? storage eid)
@@ -79,44 +80,50 @@
   (prop:type type? component:type)
   (make-struct-type-property 'type))
 
-(define (get-storage comp)
+(define (component:storage comp)
   (unless (hash-has-key? (*world*) (component:type comp))
     (hash-set! (*world*) (component:type comp) ((ctor-ref comp))))
   (hash-ref (*world*) (component:type comp)))
 
-(struct Component ())
-(struct IndexedComponent Component ([eid #:auto #:mutable]) #:auto-value 0)
+(define @type component:type)
 
-(struct ComponentStorage ())
+(struct component () #:constructor-name $component)
+(struct indexed-component component ([eid #:auto #:mutable])
+  #:constructor-name $indexed-component
+  #:auto-value 0)
 
-(struct HashComponentStorage ComponentStorage ([data #:mutable])
+(struct component-storage () #:constructor-name $component-storage)
+
+(struct hash-component-storage component-storage ([data #:mutable])
+  #:constructor-name $hash-component-storage
   #:methods gen:storage
   [(define [storage:entity? self eid]
-     (hash-has-key? (HashComponentStorage-data self) eid))
+     (hash-has-key? (hash-component-storage-data self) eid))
    (define [storage:for-entity self eid]
-     (hash-ref (HashComponentStorage-data self) eid #f))
+     (hash-ref (hash-component-storage-data self) eid #f))
    (define [storage:update self eid comp]
-     (hash-set! (HashComponentStorage-data self) eid comp))
+     (hash-set! (hash-component-storage-data self) eid comp))
    (define [storage:remove self eid]
-     (hash-remove! (HashComponentStorage-data self) eid))
+     (hash-remove! (hash-component-storage-data self) eid))
    (define [storage:entities self]
-     (hash-keys (HashComponentStorage-data self)))
+     (hash-keys (hash-component-storage-data self)))
    (define [storage:components self]
-     (hash-values (HashComponentStorage-data self)))])
+     (hash-values (hash-component-storage-data self)))])
 
-;; FlaggedComponentStorage is just a wrapper around another storage, with the
+;; flagged-component-storage is just a wrapper around another storage, with the
 ;; primary difference being that on insertion, updates, and deletion, an event
 ;; is fired, allowing systems to respond to these events.
 
 ;; How would that even work?? Could we proxy the component (to intercept
 ;; updates)? For now, we can just fire these events explicitly I guess.
-(struct FlaggedComponentStorage ComponentStorage ([stg #:mutable]))
+(struct flagged-component-storage component-storage ([stg #:mutable])
+  #:constructor-name $flagged-component-storage)
 
 ;; TODO: At some point we will add tag-based component storage (for components
 ;; with no data/properties). For now we keep them all the same.
 
-(define [make-HashComponentStorage]
-  (HashComponentStorage (make-hash)))
+(define [make-hash-component-storage]
+  ($hash-component-storage (make-hash)))
 
 (define-syntax [define/component stx]
   (syntax-parse stx
@@ -125,12 +132,16 @@
         (~optional (~seq #:indexed indexed)
                    #:defaults ([indexed #'#f]))
         (~optional (~seq #:property (~literal prop:ctor) ctor-fn)
-                   #:defaults ([ctor-fn #'make-HashComponentStorage]))
+                   #:defaults ([ctor-fn #'make-hash-component-storage]))
         ;; We can "forward" additional struct attributes like this. Implemented
         ;; mostly for being able to implement generic interfaces.
         other-stuff ...)
      #`(begin
-         (struct name #,(if (syntax-e #'indexed) #'IndexedComponent #'Component) (fields ...)
+         (struct name #,(if (syntax-e #'indexed)
+                            #'indexed-component
+                            #'component)
+           (fields ...)
+           #:constructor-name #,(format-id #'name "@~a" #'name)
            #:mutable
            #:transparent
            #:property prop:type (quote name)
@@ -145,27 +156,27 @@
              #:when (storage:entity? storage eid))
     (storage:for-entity storage eid)))
 
-(define [get-next-eid]
+(define [next-eid]
   (*next-eid* (add1 (*next-eid*)))
   (*next-eid*))
 
-(define/component Entity (eid))
+(define/component entity (eid))
 
 (define [define/entity . components]
-  (let* ([eid (get-next-eid)]
-         [ent (Entity eid)])
-    (storage:update (get-storage struct:Entity) eid ent)
+  (let* ([eid (next-eid)]
+         [ent (@entity eid)])
+    (storage:update (component:storage struct:entity) eid ent)
     (map (λ (comp)
-           (when (IndexedComponent? comp)
-             (set-IndexedComponent-eid! comp eid))
-           (storage:update (get-storage comp) eid comp))
+           (when (indexed-component? comp)
+             (set-indexed-component-eid! comp eid))
+           (storage:update (component:storage comp) eid comp))
          components)
     ent))
 
 ;; Transducer functions ---------------------------------------------
 
 (define [has? type]
-  (let ([stg (get-storage type)])
+  (let ([stg (component:storage type)])
     (xform/filter (λ (eid) (storage:entity? stg eid)))))
 
 (define [has?* types]
@@ -174,15 +185,15 @@
 (define [into-resultset]
          (xform/map (λ (eid) (cons eid '()))))
 
-(define [with-component component-type]
-  (let ([stg (get-storage component-type)])
+(define [with-component type]
+  (let ([stg (component:storage type)])
     (xform/map (λ (ent)
                  (cons (car ent)
                        (cons (storage:for-entity stg (car ent))
                              (cdr ent)))))))
 
 
-;; Macro Interface --------------------------------------------------
+;; Macro Interface ---------------------------------------------------------------
 
 ;; TODO: This version hasn't yet been implemented.
 
@@ -210,7 +221,7 @@
 ;; guarantee that the first step even involves storages.
 (define [ecs-query
          xform
-         #:init (init (storage:entities (get-storage struct:Entity)))]
+         #:init (init (storage:entities (component:storage struct:entity)))]
   (transduce xform (completing cons) '() init))
 
 (define [simple-component-query
@@ -231,7 +242,7 @@
 
      #:with comps #'(comp ...)
      #:with structs (map (λ (id) (format-id #'n "struct:~a" id)) (syntax-e #'comps))
-     #:with init  #`(storage:entities (get-storage #,(car (syntax-e #'structs))))
+     #:with init  #`(storage:entities (component:storage #,(car (syntax-e #'structs))))
      #:with bindings #`#,(for/list ([c (in-list (syntax->list #'comps))]
                                     [b (in-list (reverse
                                                  (syntax-e #'(bind ...))))]
