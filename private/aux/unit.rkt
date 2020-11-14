@@ -4,19 +4,22 @@
          racket/struct-info
          graph)
 
-(provide add-conversion-factor
+(provide prop:conversions
+         prop:units
+         add-conversion-factor
          convert-to
          uom+ uom-
          uom* uom/
-         (struct-out UOM)
+         (struct-out uom)
+         (rename-out [normalize-args normalize])
 
          ;; FIXME: These things should really be in another file.
-         (struct-out Distance)
-         (struct-out Meters)
-         (struct-out Kilometers)
-         (struct-out Feet)
-         ->Feet
-         (struct-out Inches))
+         (struct-out distance)
+         (struct-out meters)
+         (struct-out kilometers)
+         (struct-out feet)
+         ->feet
+         (struct-out inches))
 
 ;; TODO: Add macros to even out the rough edges.
 
@@ -24,34 +27,49 @@
 (define-values (prop:units       units?       units-ref)       (make-struct-type-property 'units))
 
 (define [uom-printer self port mode]
-  (write-string (format "~a~a" (UOM-value self) (units-ref self)) port))
+  (write-string (format "~a ~a" (uom-value self) (units-ref self)) port))
 
-(struct UOM ([value #:mutable])
+(define (uom-eq? uom1 uom2 recursive-equal?)
+  (let-values ([(uom1 uom2) (normalize-args uom1 uom2)])
+    (eq? (uom-value uom1) (uom-value uom2))))
+(define (uom-hash-code uom recursive-equal-hash) 0)
+(define (uom-secondary-hash-code uom recursive-equal-hash) 0)
+
+(struct uom ([value #:mutable])
+  #:constructor-name $uom
   #:transparent
   #:property prop:units      #f
-  #:methods gen:custom-write [(define write-proc uom-printer)])
+  #:methods gen:custom-write [(define write-proc uom-printer)]
+  #:methods gen:equal+hash
+  [(define equal-proc uom-eq?)
+   (define hash-proc  uom-hash-code)
+   (define hash2-proc uom-secondary-hash-code)])
 
-(struct Distance UOM ()
+(struct distance uom ()
+  #:constructor-name $distance
   #:property prop:conversions (unweighted-graph/directed '()))
 
 (define-edge-property
-  (conversions-ref struct:Distance)
+  (conversions-ref struct:distance)
   conversion-factor #:init 1) ;; Default factor is identity for multiplication
 
-(struct Meters Distance ()
+(struct meters distance ()
+  #:constructor-name $meters
   #:transparent
   #:property prop:units "m")
 
-(struct Kilometers Distance ()
+(struct kilometers distance ()
+  #:constructor-name $kilometers
   #:transparent
   #:property prop:units "km")
 
-(struct Feet Distance ()
+(struct feet distance ()
+  #:constructor-name $feet
   #:transparent
   #:property prop:units "ft")
 
-(define [->Feet x]
-  (convert-to x struct:Feet))
+(define [->feet x]
+  (convert-to x struct:feet))
 
 #;(define/uom Feet
   #:measure-of Distance
@@ -59,7 +77,8 @@
   #:conversions ([-> Inches : 1/12]
                  [... more conversions here if you want ...]))
 
-(struct Inches Distance ()
+(struct inches distance ()
+  #:constructor-name $inches
   #:transparent
   #:property prop:units "in")
 
@@ -72,9 +91,9 @@
     (add-directed-edge! g to-uom from-uom)
     (conversion-factor-set! to-uom from-uom factor)))
 
-(add-conversion-factor struct:Meters struct:Kilometers 1000)
-(add-conversion-factor struct:Inches struct:Meters     39.37008)
-(add-conversion-factor struct:Inches struct:Feet       12)
+(add-conversion-factor struct:meters struct:kilometers 1000)
+(add-conversion-factor struct:inches struct:meters     39.37008)
+(add-conversion-factor struct:inches struct:feet       12)
 
 ;; FIXME: This might work better as a macro but it's hard to tell.
 (define [convert-to val uom]
@@ -85,7 +104,7 @@
     ;; constructors identical to their names.
     (let* ([ctor (struct-type-make-constructor uom)]
            [factor (aggregate-conversion-factor from-uom uom)])
-      (ctor (exact->inexact (* factor (UOM-value val)))))))
+      (ctor (exact->inexact (* factor (uom-value val)))))))
 
 (define [smaller-of uom1 uom2]
   (if (> (aggregate-conversion-factor uom1 uom2) 1)
@@ -102,6 +121,7 @@
       (set! factor (* factor (conversion-factor x y))))
     factor))
 
+;; TODO: Update to normalize an arbitrary number of arguments.
 (define [normalize-args uom1 uom2]
   ;; Returns uom1 and uom2 such that they share the same unit of measure,
   ;; performing conversions as necessary.
@@ -111,23 +131,23 @@
       (if (eq? (smaller-of type:uom1 type:uom2) type:uom1)
             (let ([ctor (struct-type-make-constructor type:uom1)])
               (values uom1
-                      (ctor (* (/ 1 factor) (UOM-value uom2)))))
+                      (ctor (* (/ 1 factor) (uom-value uom2)))))
             (let ([ctor (struct-type-make-constructor type:uom2)])
-              (values (ctor (* factor (UOM-value uom1)))
+              (values (ctor (* factor (uom-value uom1)))
                       uom2))))))
 
 (define [uom-primitive-op op x y]
   (let*-values ([(x y)    (normalize-args x y)]
                 [(type _) (struct-info x)])
-    ((struct-type-make-constructor type) (op (UOM-value x)
-                                             (UOM-value y)))))
+    ((struct-type-make-constructor type) (op (uom-value x)
+                                             (uom-value y)))))
 
 (define [uom+ x y] (uom-primitive-op + x y))
 (define [uom- x y] (uom-primitive-op - x y))
 
 (define [uom-scalar-op op x y]
   (let-values ([(type _) (struct-info x)])
-    ((struct-type-make-constructor type) (op (UOM-value x) y))))
+    ((struct-type-make-constructor type) (op (uom-value x) y))))
 
 (define [uom* x y] (uom-scalar-op * x y))
 (define [uom/ x y] (uom-scalar-op / x y))
