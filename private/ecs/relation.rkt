@@ -74,9 +74,12 @@ to other entities.
      #'(begin
          (define relation (unweighted-graph/directed '()))
          (define [from-pred x y]
-           (for/or ([n (in-neighbors relation x)]) (eq? n y)))
+           (and (has-vertex? relation x)
+                (for/or ([n (in-neighbors relation x)]) (eq? n y))))
          (define [from-get x]
-           (get-neighbors relation x))
+           (if (has-vertex? relation x)
+               (get-neighbors relation x)
+               '()))
          (define [from-rel x y]
            (add-directed-edge! relation x y))
          (define [from-trav x y]

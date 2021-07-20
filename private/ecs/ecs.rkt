@@ -38,7 +38,8 @@
          component:update
          into-resultset
          with-component
-         let/ecs)
+         let/ecs
+         let/entity)
 
 (define (component:update comp eid)
   (storage:update (component:storage comp) eid comp))
@@ -254,3 +255,20 @@
            (match-let (#,@#'bindings)
              body ...)))]))
 
+(define-syntax [let/entity stx]
+  (syntax-parse stx
+    [(n init ([bind:expr comp:id] ...) body ...)
+
+     #:with comps #'(comp ...)
+     #:with structs (map (λ (id) (format-id #'n "struct:~a" id)) (syntax-e #'comps))
+     #:with ent #'(if (entity? init) (entity-eid init) init)
+     #:with bindings #`#,(for/list ([c (in-list (syntax->list #'comps))]
+                                    [b (in-list (reverse
+                                                 (syntax-e #'(bind ...))))]
+                                    [i (in-naturals)])
+                           #`(#,b (list-ref ents #,(+ 1 i))))
+
+     #`(let ([xform (simple-component-query #,(cons #'list #'structs) #:skip-first #t)])
+         (car (for/list ([ents (in-list (ecs-query xform #:init (list ent)))])
+                (match-let (#,@#'bindings)
+                  body ...))))]))

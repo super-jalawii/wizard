@@ -13,6 +13,7 @@
          success?
          failure?
          decision-made?
+         (struct-out Action)
          (struct-out Determination)
          (struct-out Rule))
 
