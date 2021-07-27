@@ -65,14 +65,22 @@ to other entities.
          (define [rel-trav x y]
            (fewest-vertices-path relation x y)))]
     [(_ relation:id #:from from-rel:id #:to to-rel:id)
+     #:with not-from-rel (format-id #'relation "not-~a" #'from-rel)
      #:with from-pred (format-id #'relation "~a?" #'from-rel)
-     #:with from-get  (format-id #'relation "get-~a" #'from-rel)
+     #:with from-get  (format-id #'relation "get-~a" #'to-rel)
      #:with from-trav (format-id #'relation "traverse-by-~a" #'from-rel)
+     #:with not-to-rel (format-id #'relation "not-~a" #'to-rel)
      #:with to-pred   (format-id #'relation "~a?" #'to-rel)
-     #:with to-get    (format-id #'relation "get-~a" #'to-rel)
+     #:with to-get    (format-id #'relation "get-~a" #'from-rel)
      #:with to-trav   (format-id #'relation "traverse-by-~a" #'to-rel)
      #'(begin
          (define relation (unweighted-graph/directed '()))
+         (define [not-from-rel x y]
+           (when (has-vertex? relation x)
+             (if (eq? y 'anything)
+                 (for ([y (in-neighbors relation x)])
+                   (remove-directed-edge! relation x y))
+                 (remove-directed-edge! relation x y))))
          (define [from-pred x y]
            (and (has-vertex? relation x)
                 (for/or ([n (in-neighbors relation x)]) (eq? n y))))
@@ -84,10 +92,17 @@ to other entities.
            (add-directed-edge! relation x y))
          (define [from-trav x y]
            (fewest-vertices-path relation x y))
+         (define [not-to-rel x y]
+           (when (has-vertex? relation x)
+             (let ([t-relation (transpose relation)])
+               (if (eq? y 'anything)
+                   (for ([y (in-neighbors t-relation x)])
+                     (remove-directed-edge! relation y x))
+                   (remove-directed-edge! relation y x)))))
          (define [to-pred x y]
            (from-pred y x))
          (define [to-get x]
-           (printf "Not yet implemented..."))
+           (get-neighbors (transpose relation) x))
          (define [to-rel x y]
            (add-directed-edge! relation y x))
          (define [to-trav x y]

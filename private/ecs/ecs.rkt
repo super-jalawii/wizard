@@ -25,11 +25,14 @@
          *next-eid*
          has?
          has?*
+         xform/has?
+         xform/has?*
          ecs-query
          (rename-out [simple-component-query ecs-query/simple]
                      [define/component @define])
          component:storage
          component:entity?
+         component:for-eid
          component:for-entity
          component:all
          component:entities
@@ -40,6 +43,8 @@
          with-component
          let/ecs
          let/entity)
+
+
 
 (define (component:update comp eid)
   (storage:update (component:storage comp) eid comp))
@@ -56,7 +61,10 @@
   (storage:entity? (component:storage comp)
                    eid))
 
-(define [component:for-entity comp eid]
+(define [component:for-entity comp ent]
+  (component:for-eid comp (entity-eid ent)))
+
+(define [component:for-eid comp eid]
   (storage:for-entity (component:storage comp)
                       eid))
 
@@ -174,14 +182,21 @@
          components)
     ent))
 
+(define (has? ent type)
+  (component:entity? type (entity-eid ent)))
+
+(define (has?* ent types)
+  (for/and ([type (in-list types)])
+    (has? ent type)))
+
 ;; Transducer functions ---------------------------------------------
 
-(define [has? type]
+(define [xform/has? type]
   (let ([stg (component:storage type)])
     (xform/filter (λ (eid) (storage:entity? stg eid)))))
 
-(define [has?* types]
-  (apply compose (map has? types)))
+(define [xform/has?* types]
+  (apply compose (map xform/has? types)))
 
 (define [into-resultset]
          (xform/map (λ (eid) (cons eid '()))))
@@ -234,11 +249,25 @@
                                   comps)))])
     (apply compose (if (and skip-first? (null? (cdr comps)))
                        xforms
-                       (cons (has?* (if skip-first? (cdr comps) comps))
+                       (cons (xform/has?* (if skip-first? (cdr comps) comps))
                              xforms)))))
 
 (define-syntax [let/ecs stx]
   (syntax-parse stx
+    [(n init ([bind:expr comp:id] ...) body ...)
+
+     #:with comps #'(comp ...)
+     #:with structs (map (λ (id) (format-id #'n "struct:~a" id)) (syntax-e #'comps))
+     #:with bindings #`#,(for/list ([c (in-list (syntax->list #'comps))]
+                                    [b (in-list (reverse
+                                                 (syntax-e #'(bind ...))))]
+                                    [i (in-naturals)])
+                           #`(#,b (list-ref ents #,(+ 1 i))))
+
+     #`(let ([xform (simple-component-query #,(cons #'list #'structs) #:skip-first #t)])
+         (for/list ([ents (in-list (ecs-query xform #:init (map (λ (e) (entity-eid e)) init)))])
+           (match-let (#,@#'bindings)
+             body ...)))]
     [(n ([bind:expr comp:id] ...) body ...)
 
      #:with comps #'(comp ...)
