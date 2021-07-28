@@ -10,19 +10,16 @@
          graph
          gregor
          gregor/period
-         wizard)
+         (except-in wizard contains?))
 
-
-
-(define/component thing (name desc))
-
-;; instead of listing the contents directly, we can store the eid of the
-;; container here, and then look up the contents via the relation.
-(define/relation containment #:from contains #:to contained-by)
-(define/component container () #:indexed #t)
-
-(define (container-contents ent)
-  (get-contained-by ent))
+(require "core.rkt"
+         "util.rkt"
+         "repl.rkt"
+         "print.rkt"
+         "systems/time.rkt"
+         "systems/anatomy.rkt"
+         "systems/map.rkt"
+         "verbs/look.rkt")
 
 #|
 
@@ -66,36 +63,6 @@ know we're done unless we search everywhere or maintain an index of everything.
 |#
 
 
-#|
-
-How do locations work?? Do we have that quadtree?
-
-|#
-
-(struct action (verb subject object))
-(define look 'look)
-
-(define/rule #:for look/report #:basis (action look _ _)
-  #:rule ((action _ obj _)
-          (let/entity obj ([(thing name desc) thing])
-                      (printf "~n~a :: ~a" name desc)
-                      ; If this is a container, display its contents as well.
-                      (when (has? obj struct:container)
-                        (let ([contents (container-contents obj)])
-                          (unless (empty? contents)
-                            (printf "~n~nContents:")
-                            (for ([item (in-list contents)])
-                              (let/entity item ([(thing name desc) thing])
-                                          (printf "~n  * ~a :: ~a" name desc))))))
-                      (when (has? obj struct:surface)
-                        (let ([contents (surface-contents obj)])
-                          (unless (empty? contents)
-                            (printf "~n~nOn the ~a are:" name)
-                            (for ([item (in-list contents)])
-                              (let/entity item ([(thing name desc) thing])
-                                          (printf "~n  * ~a :: ~a" name desc))))))
-                      (printf "~n~n"))))
-
 (define chest (define/entity
                 (@thing "Chest" "This is our example container.")
                 (@container)))
@@ -108,98 +75,12 @@ How do locations work?? Do we have that quadtree?
 ;; Given a symbol and a string suffix, returns a symbol consisting of the
 ;; original symbol, with the provided string appended to the end. (In other
 ;; words it does exactly what you think it does).
-(define (symbol-append sym str)
-  (string->symbol (format "~a~a" (symbol->string sym) str)))
-
-;; A small helper function which, given a symbol representing a verb, returns a
-;; list of symbols representing the standard rulebooks for that verb.
-(define (verb-rulebooks verb)
-  (list (symbol-append verb "/instead-of")
-        (symbol-append verb "/before")
-        (symbol-append verb "/carry-out")
-        (symbol-append verb "/report")
-        (symbol-append verb "/after")))
-
-(define (do action)
-  ;; Fire off the appropriate events / abide by the appropriate rulebooks?
-  (abide-rulebook 'event/before-turn #:param action)
-
-  (abide-rulebook 'event/every-turn #:param action)
-
-  (when action
-    (let* ([rulebooks (verb-rulebooks (action-verb action))]
-           [instead-outcome (abide-rulebook (car rulebooks) #:param action)])
-      (when (not (decision-made? instead-outcome))
-        (for/or ([rulebook (in-list (cdr rulebooks))])
-          (failure? (abide-rulebook rulebook #:param action))))))
-
-  (abide-rulebook 'event/after-turn #:param action))
-
 ;; An example of an event with no associated data.
-(define/event &time ([advance amt]))
-
-(define/rule #:for event/before-turn
-  #:rule (_ (trigger-event (&time::advance 5))))
-
-(define/rule
-  #:for event/before
-  #:basis (&time::advance _)
-  #:rule ((&time::advance amt)
-          (*current-time* (+period (*current-time*) (period (minutes amt))))))
-
 #;(define/rule #:for event #:basis (&time::advanced)
   #:rule (_ (printf "Time passes...")))
 
 ;; This works, but the semantics of "abide-rulebook" are a little confusing.
-(define (trigger-event evt)
-  (abide-rulebook 'event/before #:param evt)
-  (abide-rulebook 'event #:param evt)
-  (abide-rulebook 'event/after #:param evt))
-
 ;; -------------------------------------- Lab
-
-(define/component actor ())
-(define/component room (name desc)) ; thing and room are identical...
-(define/component animal (skeleton))
-
-(define human-graph
-  (unweighted-graph/undirected
-   '((head neck)
-     (neck chest)
-     (chest gut)
-     (gut pelvis)
-     (pelvis groin)
-     (pelvis left-theigh)
-     (pelvis right-theigh)
-     (left-theigh left-knee)
-     (right-theigh right-knee)
-     (left-knee left-calf)
-     (right-knee right-calf)
-     (left-calf left-ankle)
-     (right-calf right-ankle)
-     (left-ankle left-foot)
-     (right-ankle right-foot)
-     (left-foot left-toes)
-     (right-foot right-toes)
-     (chest left-shoulder)
-     (chest right-shoulder)
-     (left-shoulder left-upper-arm)
-     (right-shoulder right-upper-arm)
-     (left-upper-arm left-elbow)
-     (right-upper-arm right-elbow)
-     (left-elbow left-lower-arm)
-     (right-elbow right-lower-arm)
-     (left-lower-arm left-wrist)
-     (right-lower-arm right-wrist)
-     (left-wrist left-hand)
-     (right-wrist right-hand)
-     (left-eye head)
-     (right-eye head)
-     (nose head)
-     (mouth head)
-     (left-ear head)
-     (right-ear head))))
-
 (define player (define/entity
                  (@animal human-graph)
                  (@thing "You"
@@ -215,21 +96,13 @@ How do locations work?? Do we have that quadtree?
 
 (player . contained-by . starting-room)
 
-(define *current-actor* (make-parameter player))
-
+(*current-actor* player)
 ;; (define/rule
 ;;   #:for event/after-turn
 ;;   #:rule (_ (print-current-room-desc)))
 
 
 ;; ------- Surfaces
-
-(define/relation support #:from supports #:to supported-by)
-
-(define/component surface ())
-
-(define (surface-contents ent)
-  (get-supported-by ent))
 
 (define table (define/entity
                 (@thing "Table" "A short wooden table.")
@@ -240,11 +113,6 @@ How do locations work?? Do we have that quadtree?
 ;; -------- Inventory
 
 ;; -------- Description helpers
-
-(define (&name-of obj)
-  (if (has? obj struct:thing)
-      (thing-name (component:for-entity struct:thing obj))
-      (room-name (component:for-entity struct:room obj))))
 
 ;; ---------- something better ---------------
 
@@ -354,30 +222,6 @@ simulation. We will start from the bottom, but first we have to find it.
 
 |#
 
-(define *current-time* (make-parameter (datetime 1200)))
-
-(define/component timepiece (fmt))
-
-(define (pre-format-datetime t fmt)
-  ;; Basically this function's job is to patch up unimplemented format
-  ;; specification thingies.
-  (string-replace fmt "b" (let ([t (->hours t)])
-                            (cond
-                              [(and (< 0  t) (< t 11)) "'in the morning'"]
-                              [(and (< 11 t) (< t 5))  "'in the afternoon'"]
-                              [(and (< 5  t) (< t 10)) "'in the evening'"]
-                              [else                    "'at night'"]))))
-
-(define/rule
-  #:for look/report
-  #:basis (action 'look (? (λ (v) (has? v struct:timepiece))) #f)
-  #:rule ((action _ obj _)
-          (let/entity obj ([(timepiece fmt) timepiece])
-                      (printf "~nIt is currently ~a."
-                              (~t (*current-time*)
-                                  (pre-format-datetime (*current-time*)
-                                                       fmt))))
-          (succeed)))
 
 
 ;; Some demo timepieces demonstrating how we can show the time differently in
@@ -420,39 +264,10 @@ This means that actions are sent to the other thread via a channel.
 |#
 
 
-(define tick-time 5000)
-
-(define (start-inform-repl in-chan)
-  (printf "Starting game thread.")
-  (thread (λ ()
-            (let loop ([ct (current-inexact-milliseconds)])
-              (let ([next-tick (+ ct tick-time)])
-                (update-fn)
-
-                (let poll ([in (async-channel-try-get in-chan)])
-                  (if in
-                      (and (do in) (printf "~n~n>> "))
-                      (unless (>= (current-inexact-milliseconds) next-tick)
-                        (poll (async-channel-try-get in-chan)))))
-
-                (loop (current-inexact-milliseconds)))))))
-
-
-(define input-channel (make-async-channel))
-
-(start-inform-repl input-channel)
-
 (define (update-fn)
-  (do #f))
+  (do-action #f))
 
-(define (list-contents ent)
-  (let/ecs (get-contained-by ent) ([(thing name _) thing]) name))
-
-(define/rule
-  #:for look/report
-  #:basis (action 'look (? (λ (v) (has? v struct:container))) #f)
-  #:rule ((action _ obj _)
-          (printf "~n ~a" (list-contents obj))))
+(start-repl #:on-update update-fn)
 
 ;; ------------ Saving memory with implied stuff
 
@@ -533,38 +348,6 @@ Let's talk about exits...
 
 |#
 
-(define *map* (unweighted-graph/adj '()))
-(define-edge-property *map* outbound-dir-name)
-(define-edge-property *map* outbound-portal #:init #f)
-
-(define (connect r1 r2 dir #:via [via #f] )
-  (printf "Connecting rooms ~a and ~a via ~a" r1 r2 via)
-  (add-directed-edge! *map* r1 r2)
-  (add-directed-edge! *map* r2 r1)
-  (outbound-dir-name-set! r1 r2 (car dir))
-  (outbound-dir-name-set! r2 r1 (cdr dir))
-  (when via
-    (outbound-portal-set! r1 r2 via)
-    (outbound-portal-set! r2 r1 via)))
-
-(define east/west (cons 'east 'west))
-(define north/south (cons 'north 'south))
-
-(define (location-of ent)
-  (car (get-contains ent)))
-
-(define (get-connected-room room dir)
-  (for/or ([other-room (in-neighbors *map* room)])
-    (if (eq? (outbound-dir-name room other-room #:default #f) dir)
-        other-room
-        #f)))
-
-(define (move-to ent [loc (location-of *current-actor*)])
-  (ent . not-contained-by . 'anything)
-  (loc . contains . ent)
-  (printf "~n~nPoof.")
-  (print-current-room-desc))
-
 (define room1 (define/entity (@room "Room1" "Room1 Description.")))
 (define room2 (define/entity (@room "Room2" "Room2 Description.")))
 (define room3 (define/entity (@room "Room3" "Room3 Description.")))
@@ -579,68 +362,18 @@ Let's talk about exits...
   #:for go/before
   #:basis (action 'go _ _)
   #:rule ((action 'go dir _)
-          (let* ([current-loc (location-of (*current-actor*))]
-                 [dest-loc (get-connected-room current-loc dir)])
+          (let* ([current-loc (ent/location)]
+                 [dest-loc (current-loc . follow-towards . dir)])
             (if dest-loc
                 (begin
                   (printf "Going ~a from ~a towards the ~a"
                           dir
-                          (&name-of current-loc)
-                          (&name-of dest-loc))
-                  (move-to (*current-actor*) dest-loc))
+                          (ent/name-of current-loc)
+                          (ent/name-of dest-loc))
+                  (ent/move-to (*current-actor*) dest-loc))
                 (printf "You can't go that way.")))))
 
-(define (maim ent part)
-  ;; Make a copy of the graph so we don't mess up the prototypical skeleton.
-  (let* ([animal (component:for-entity struct:animal ent)]
-         [skeleton (graph-copy (animal-skeleton animal))]
-         [to-trunk (fewest-vertices-path skeleton part 'chest)]
-         [second-to-last (cadr to-trunk)])
-
-    (remove-edge! skeleton part second-to-last)
-
-    ;; Figure out which graph is the body and which is the appendage.
-    (let* ([segments (cc skeleton)]
-           ;; Pretty sure theres a partition function we could use here...
-           [trunk-segment (for/or ([seg (in-list segments)])
-                            (if (member 'chest seg) seg #f))]
-           #;[other-segment (for/or ([seg (in-list segments)])
-                            (if (not (member 'chest seg)) seg #f))])
-
-      ;; TODO: Severed body part should be created as a distinct entity.
-      ;; Remove the separated bodyparts.
-      (let* ([skeleton (move-vertices skeleton trunk-segment)])
-        (set-animal-skeleton! animal skeleton)))))
-
-(define (move-vertices g vs)
-  (let ([new-graph (unweighted-graph/undirected '())])
-    (for ([v (in-list vs)])
-      ;; Create the vertex in our new graph, recreating each connection.
-      (add-vertex! new-graph v)
-      (map (λ (n) (add-edge! new-graph v n)) (get-neighbors g v))
-      (remove-vertex! g v))
-    new-graph))
-
-(define (get-exits room)
-  (for/list ([e (in-neighbors *map* room)])
-    (outbound-dir-name room e)))
-
-(define (print-list lst)
-  (let ([lst (if (symbol? (car lst))
-                 (map symbol->string lst)
-                 lst)]
-        [before-last (if (> (length lst) 2) ", and " " and ")])
-    (string-join lst ", " #:before-last before-last)))
-
-(define (print-current-room-desc)
-  (let ([room-ent (car (get-contains (*current-actor*)))])
-    (let/entity room-ent ([(room name desc) room])
-                (printf "~n~n~a:~n~n~a~n~nThere are exits ~a.~n"
-                        name
-                        desc
-                        (print-list (get-exits room-ent))))))
-
-(print-current-room-desc)
+(print/room)
 
 ;; --------------------- Ok, what now?
 
@@ -1038,7 +771,7 @@ We only need to keep a reference to a single local map at a time.
     ;; Annotate Exits and Build Walls on Non-Exit sides.
     (for ([d (in-list '(north south east west))])
       (build-wall local-map d))
-    (for ([e (get-exits area)])
+    (for ([e (room/exits area)])
       (build-exit local-map e))
 
     local-map))
@@ -1056,7 +789,8 @@ We only need to keep a reference to a single local map at a time.
     (printf "~n")))
 
 (define forest-map (generate-forest 5))
-(move-to player (grid-get forest-map 2 2))
+(ent/move-to player (grid-get forest-map 2 2))
+(print/room)
 (define test-map (get-local-map (grid-get forest-map 2 2)))
 
 
@@ -1085,8 +819,8 @@ Ok, this is long past due. Time to figure out how we can talk about things.
 ;; refers to everything in the same location as the entity in question.
 ;; Reachable includes things on surfaces, and in open containers, but excludes
 ;; things in closed containers.
-(define (reachable ent)
-  (let* ([loc (location-of ent)]
+(define (reachable [ent (*current-actor*)])
+  (let* ([loc (ent/location ent)]
          ;; Add things in the same room
          [things (get-contained-by loc)]
          ;; Add things on surfaces in the room.
@@ -1102,7 +836,8 @@ Ok, this is long past due. Time to figure out how we can talk about things.
          )
     things))
 
-(define (reachable? ent #:by [by (*current-actor*)])
+(define (reachable? [ent (*current-entity*)]
+                    #:by [by (*current-actor*)])
   (member ent (reachable by)))
 
 ;; This is basically like the threading macro.
@@ -1123,7 +858,7 @@ Ok, this is long past due. Time to figure out how we can talk about things.
   #:rule ((action _ obj _)
           ;; TODO: This message should be different depending on whether the
           ;; entity can see the object and whether they "know about" the object.
-          (printf "~nYou can't reach the ~a from here.~n" (&name-of obj))
+          (printf "~nYou can't reach the ~a from here.~n" (ent/name-of obj))
           (fail)))
 
 ;; Reaching inside of a container to take something.
