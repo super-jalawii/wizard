@@ -10,6 +10,7 @@
          graph
          gregor
          gregor/period
+         fastnoiselite
          (except-in wizard contains?))
 
 (require "core.rkt"
@@ -19,6 +20,8 @@
          "systems/time.rkt"
          "systems/anatomy.rkt"
          "systems/map.rkt"
+         "systems/local-map.rkt"
+         "verbs/go.rkt"
          "verbs/look.rkt")
 
 #|
@@ -358,21 +361,6 @@ Let's talk about exits...
 (connect room1 starting-room north/south)
 (connect room3 room1 north/south)
 
-(define/rule
-  #:for go/before
-  #:basis (action 'go _ _)
-  #:rule ((action 'go dir _)
-          (let* ([current-loc (ent/location)]
-                 [dest-loc (current-loc . follow-towards . dir)])
-            (if dest-loc
-                (begin
-                  (printf "Going ~a from ~a towards the ~a"
-                          dir
-                          (ent/name-of current-loc)
-                          (ent/name-of dest-loc))
-                  (ent/move-to (*current-actor*) dest-loc))
-                (printf "You can't go that way.")))))
-
 (print/room)
 
 ;; --------------------- Ok, what now?
@@ -444,7 +432,6 @@ which takes the entity as a parameter.
 
 
 
-(define *current-entity* (make-parameter player))
 
 (define/component digging (level))
 
@@ -639,9 +626,6 @@ different generators for different types of areas.
            [y (in-range 0 dimensions)])
       (printf "~nGenerating: ~a, ~a" x y)
 
-      (unless (hash-has-key? area-map x)
-        (hash-set! area-map x (make-hash)))
-
       ;; Create the area.
       (let* ([area (forest-archetype-template)]
              [exits (random-sample '(north south east west)
@@ -657,16 +641,20 @@ different generators for different types of areas.
                                 ['east  (values (+ x 1) y)]
                                 ['west  (values (- x 1) y)])])
             ;; If the adjacent room has been created, then connect them.
-            (when (hash-ref (hash-ref area-map x (make-hash)) y #f)
+            (when (grid-get area-map x y)
               (connect area
-                       (hash-ref (hash-ref area-map x) y)
+                       (grid-get area-map x y)
                        (case e
                          [(north south) north/south]
                          [(east west) east/west])))))
 
         ;; Add to the map.
-        (hash-set! (hash-ref area-map x) y area)))
+        (grid-set! area-map x y area)))
     area-map))
+
+(define (do action)
+  (async-channel-put (*input-channel*) action))
+
 
 #|
 
@@ -715,83 +703,12 @@ We only need to keep a reference to a single local map at a time.
 |#
 
 
-(struct LocalMapTile (solid opaque tags) #:mutable)
-
-(define (grid-set! g x y v)
-  (unless (hash-ref g x #f)
-    (hash-set! g x (make-hash)))
-  (hash-set! (hash-ref g x (make-hash)) y v))
-
-(define (grid-get g x y [v #f])
-  (hash-ref (hash-ref g x (make-hash)) y v))
-
-(define *current-local-map* (make-parameter #f))
-
-;; Given a map m (a hash table of hash tables), and a direction d, make all of
-;; the tiles on the corresponding side opaque.
-(define (build-wall m d)
-  (let* ([x-dim (hash-count m)]
-         [y-dim (hash-count (hash-ref m (car (hash-keys m))))]
-         [ranges (case d
-                   ['north (cons 0 (in-range x-dim))]
-                   ['south (cons (- y-dim 1) (in-range x-dim))]
-                   ['east  (cons (- x-dim 1) (in-range y-dim))]
-                   ['west  (cons 0 (in-range y-dim))])])
-    (for ([a (cdr ranges)])
-      (let ([x (if (member d '(north south)) a (car ranges))]
-            [y (if (member d '(east west)) a (car ranges))])
-        (set-LocalMapTile-solid! (grid-get m x y) #t)
-        (set-LocalMapTile-opaque! (grid-get m x y) #t)))))
-
-(define (build-exit m d)
-  (let* ([x-dim (hash-count m)]
-         [y-dim (hash-count (hash-ref m (car (hash-keys m))))]
-         [x-mid (+ (quotient x-dim 2) 0)]
-         [y-mid (+ (quotient y-dim 2) 0)])
-    (let-values ([(x y) (case d
-                          ['north (values x-mid 0)]
-                          ['south (values x-mid (- x-dim 1))]
-                          ['east  (values (- x-dim 1) y-mid)]
-                          ['west  (values 0 y-mid)])])
-      (let ([tile (grid-get m x y)])
-        (set-LocalMapTile-solid! tile #f)
-        (set-LocalMapTile-opaque! tile #f)
-
-        ;; Add the exit tag to this location.
-        (unless (member 'exit (LocalMapTile-tags tile))
-          (set-LocalMapTile-tags! tile (cons 'exit (LocalMapTile-tags tile))))))))
-
-(define (get-local-map area)
-  ;; TODO: Idk what to even put here...
-  (let ([local-map (make-hash)])
-    (for* ([x (in-range 31)]
-           [y (in-range 31)])
-        (grid-set! local-map x y (LocalMapTile #f #f '())))
-
-    ;; Annotate Exits and Build Walls on Non-Exit sides.
-    (for ([d (in-list '(north south east west))])
-      (build-wall local-map d))
-    (for ([e (room/exits area)])
-      (build-exit local-map e))
-
-    local-map))
-
-(define (print-map m)
-
-  ;; TODO: Draw the player, other actors, furniture / containers, etc.
-
-  (for ([y (in-range (hash-count m))])
-    (for ([x (in-range (hash-count m))])
-      (printf "~a"
-              (cond
-                [(LocalMapTile-solid (grid-get m x y)) "# "]
-                [else                                  ". "])))
-    (printf "~n")))
-
 (define forest-map (generate-forest 5))
 (ent/move-to player (grid-get forest-map 2 2))
 (print/room)
-(define test-map (get-local-map (grid-get forest-map 2 2)))
+(define test-map (build-local-map (grid-get forest-map 2 2)))
+
+
 
 
 #|
@@ -803,92 +720,13 @@ things end up where it makes sense.
 
 |#
 
+(define *noise* (make-parameter (make-state)))
 
-
-;; ------------------- Scopes and Queries
-
-#|
-
-Ok, this is long past due. Time to figure out how we can talk about things.
-
-
-|#
-
-
-;; Given an entity, return everything reachable by that entity. Reachable here
-;; refers to everything in the same location as the entity in question.
-;; Reachable includes things on surfaces, and in open containers, but excludes
-;; things in closed containers.
-(define (reachable [ent (*current-actor*)])
-  (let* ([loc (ent/location ent)]
-         ;; Add things in the same room
-         [things (get-contained-by loc)]
-         ;; Add things on surfaces in the room.
-         [things (append things
-                         (apply append (racket/base/map get-supported-by things)))]
-         ;; Add contents of containers in room.
-         ;; TODO: Exclude inventories (containers on actor entities).
-         [things (append things
-                         (apply append (racket/base/map get-contained-by things)))]
-         ;; Make sure the entity itself is not listed.
-         [things (filter-not (λ (e) (eq? (entity-eid ent) (entity-eid e))) things)]
-         ;; TODO: Add contents of inventory of this entity if the entity has an inventory.
-         )
-    things))
-
-(define (reachable? [ent (*current-entity*)]
-                    #:by [by (*current-actor*)])
-  (member ent (reachable by)))
-
-;; This is basically like the threading macro.
-(define (.. ent . ops)
-  (foldl (λ (op acc) (op acc)) ent ops))
-
-;; Now that we've got a way to query for reachable things, we can go back and
-;; rework some of our more basic commands. Essentially by using the #:basis
-;; reachable? we can stipulate whether the rule applies.
-;; Taking things
-
-
-;; Only take things you can reach.
-
-(define/rule
-  #:for take/before
-  #:basis (action 'take (not (? reachable?)) #f)
-  #:rule ((action _ obj _)
-          ;; TODO: This message should be different depending on whether the
-          ;; entity can see the object and whether they "know about" the object.
-          (printf "~nYou can't reach the ~a from here.~n" (ent/name-of obj))
-          (fail)))
-
-;; Reaching inside of a container to take something.
-(define/rule
-  #:for take/before
-  ;; TODO: The entity being taken needs to be inside of the thing being taken
-  ;; from.
-  #:basis (action 'take _ (? reachable))
-  #:rule ((action _ obj cont)
-          (unless (or (cont . contains . obj)
-                      (cont . supports . obj)
-                      (cont . traverse-by-contains . obj)
-                      (cont . traverse-by-supports . obj))
-            (printf "~nYou aren't able to find that in here.~n")
-            (fail))))
-
-(define (gib thing [ent (*current-actor*)])
-  (thing . not-supported-by . 'anything)
-  (thing . not-contained-by . 'anything)
-  (thing . contained-by . ent))
-
-(define (༼つ◕_◕༽つ thing [ent (*current-actor*)])
-  (gib thing ent))
-
-(define/rule
-  #:for take/carry-out
-  #:rule ((action _ obj _) (gib obj)))
-
-(define/rule
-  #:for take/report
-  #:rule ((action _ obj _)
-          (printf "~nTaken.~n~n")))
-
+(define (print/noise [noise (*noise*)])
+  (for ([x (in-range 30)])
+    (for ([y (in-range 30)])
+      (let ([v (+ 0.0 (get-noise-2d noise
+                             (exact->inexact x)
+                             (exact->inexact y)))])
+        (printf "~a" (inexact->exact (floor (* 10 (max 0 v)))))))
+    (printf "~n")))

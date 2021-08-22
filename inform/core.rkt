@@ -13,8 +13,13 @@
          (struct-out room)
 
          *current-actor*
+         *current-entity*
 
          get
+
+         gib
+         ༼つ◕_◕༽つ
+         ..
 
          ent/contents
          ent/name-of
@@ -60,6 +65,7 @@
 (define/relation support #:from supports #:to supported-by)
 
 (define *current-actor* (make-parameter #f))
+(define *current-entity* (make-parameter #f))
 
 (define (get ent comp)
   (component:for-entity comp ent))
@@ -73,3 +79,14 @@
       (obj . get . struct:thing)
       (obj . get . struct:room)))
 
+(define (gib thing [ent (*current-actor*)])
+  (thing . not-supported-by . 'anything)
+  (thing . not-contained-by . 'anything)
+  (thing . contained-by . ent))
+
+(define (༼つ◕_◕༽つ thing [ent (*current-actor*)])
+  (gib thing ent))
+
+;; This is basically like the threading macro.
+(define (.. ent . ops)
+  (foldl (λ (op acc) (op acc)) ent ops))

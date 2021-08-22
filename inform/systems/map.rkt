@@ -1,6 +1,9 @@
 #lang racket
 
 (require graph
+         (rename-in (only-in racket/base map filter)
+                    (map racket/base/map)
+                    (filter racket/base/filter))
          (except-in wizard contains?))
 (require "../core.rkt")
 
@@ -8,9 +11,12 @@
 
          ent/location
          ent/move-to
+         ent/reachable
+         ent/reachable?
 
          room/exits
          room/follow
+         (rename-out [room/follow room/towards])
 
          east/west
          north/south
@@ -54,4 +60,31 @@
 (define (room/exits room)
   (for/list ([e (in-neighbors *map* room)])
     (outbound-dir-name room e)))
+
+;; Given an entity, return everything reachable by that entity. Reachable here
+;; refers to everything in the same location as the entity in question.
+;; Reachable includes things on surfaces, and in open containers, but excludes
+;; things in closed containers.
+(define (ent/reachable [ent (*current-actor*)])
+  (let* ([loc (ent/location ent)]
+         ;; Add things in the same room
+         [things (get-contained-by loc)]
+         ;; Add things on surfaces in the room.
+         [things (append things
+                         (apply append (racket/base/map get-supported-by things)))]
+         ;; Add contents of containers in room.
+         ;; TODO: Exclude inventories (containers on actor entities).
+         [things (append things
+                         (apply append (racket/base/map get-contained-by things)))]
+         ;; Make sure the entity itself is not listed.
+         [things (filter-not (λ (e) (eq? (entity-eid ent) (entity-eid e))) things)]
+         ;; TODO: Add contents of inventory of this entity if the entity has an
+         ;; inventory.
+         )
+    things))
+
+
+(define (ent/reachable? [ent (*current-entity*)]
+                    #:by [by (*current-actor*)])
+  (member ent (ent/reachable by)))
 
